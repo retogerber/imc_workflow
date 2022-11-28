@@ -1,0 +1,295 @@
+import re
+import csv
+import os
+import glob
+
+# working directory
+workdir: "."
+
+# config file name
+configfile: "config/config.yaml"
+
+# mcd files, all files in directory 'results/raw' are used
+mcd_files=glob.glob("results/raw/*.mcd")
+mcd_files=[ os.path.basename(s).replace(".mcd","") for s in mcd_files  ]
+
+
+### used parameters
+## please adjust the configfile as needed
+
+## Filtering:
+# threshold for filtering
+filter_thres=config["filtering"]["filter_thres"]
+# type of filtering
+filter_subtraction_type=config["filtering"]["filter_subtraction_type"]
+## Segmentation
+# list of nuclear channels used in segmentation
+nuc_channels=config["segmentation"]["nuc_channels"]
+# list of membrane channels used in segmentation
+mem_channels=config["segmentation"]["mem_channels"]
+# size of each pixel in micrometer
+image_pixelsize=config["segmentation"]["image_pixelsize"]
+# postprocessing parameters used in mesmer
+mesmer_postprocessing_paramsfile=config["segmentation"]["mesmer_postprocessing_paramsfile"]
+
+## steinbock, which version is used
+steinbock_container=config["steinbock_container"]
+## additional metadata of channels
+channel_metadata_file=config["channel_metadata_file"]
+
+
+
+### Start of workflow.
+
+print(".mcd files:")
+print(mcd_files)
+
+# open file with sample names
+if os.path.isfile("config/samples.csv"):
+    with open('config/samples.csv', 'r') as fil:
+        samples = fil.read().split('\n')
+        del samples[-1]
+    
+    if filter_thres > 0:
+        all_samples = samples + "_filt"
+    else:
+        all_samples = samples
+    print("images:")
+    print(all_samples)
+else:
+    all_samples=[]
+    samples=[]
+    print("No images found, run this workflow to generate them.")
+
+
+
+rule all:
+    input:
+        expand("results/images_csv/{mcd_files}_images.csv",mcd_files=mcd_files),
+        "results/images.csv",
+        "config/samples.csv",
+        #expand("results/summary_panels/{esamall}_summary.csv",esamall=samples),
+        #expand("results/masks/{esamall}.tiff",esamall=all_samples),
+        #expand("results/regionprops/{esamall}.csv",esamall=all_samples),
+        #expand("results/intensities/{esamall}.csv",esamall=all_samples),
+        expand("results/spe/raw/SPE_raw_{esamall}.rds",esamall=all_samples)
+
+
+rule extract_images_from_mcd:
+    params:
+        imgout="results/img"
+    input:
+        mcd_files="results/raw/{mcd}.mcd"
+    output:
+        imginfo_out="results/images_csv/{mcd}_images.csv",
+        tmpdir=temp(directory("results/raw_tmp/{mcd}")),
+        sumpan="results/summary_panels/{mcd}_summary.csv",
+        img_dir=temp(directory("results/img/{mcd}"))
+    container:
+        steinbock_container
+    shell:
+        "mkdir -p {output.tmpdir} "
+        " && cp {input.mcd_files} {output.tmpdir} "
+        " && steinbock preprocess imc panel -o {output.sumpan} --mcd {output.tmpdir} --txt {output.tmpdir} "
+        " && steinbock preprocess imc images --hpf 50 --mcd {output.tmpdir} --txt {output.tmpdir} --panel {output.sumpan} --imgout {output.img_dir} --infoout {output.imginfo_out} "
+        " && mv {output.img_dir}/*.tiff {params.imgout}"
+
+ruleorder: create_image_csv_1 > create_image_csv_2
+rule create_image_csv_1:
+    input:
+        sumpan=expand("results/images_csv/{mcd}_images.csv", mcd=mcd_files)
+    output:
+        imcsv="results/images.csv"
+    shell:
+        "first_file=$( echo {input.sumpan}  ) && first_file=( ${{first_file[0]}} ) && head -n 1 ${{first_file[0]}} > {output.imcsv} && tail -n+2 -q {input.sumpan} >> {output.imcsv}"
+
+rule create_samples_csv:
+    input:
+        imcsv="results/images.csv"
+    output:
+        samcsv="config/samples.csv"
+    shell:
+        "cat {input.imcsv} | cut -d, -f1 | sed 1d | sed 's/.tiff//g' > {output.samcsv}"
+
+
+rule create_individual_summary_panels:
+    params:
+        nuc_channels=nuc_channels,
+        mem_channels=mem_channels
+    input:
+        mcd_files=expand("results/summary_panels/{mcd}_summary.csv",mcd=mcd_files)
+    output:
+        summary_panels="results/summary_panels/{samples}_summary.csv"
+    shell:
+        "workflow/scripts/create_individual_summary_panels.sh '{input.mcd_files}' '{output.summary_panels}' '{params.nuc_channels}' '{params.mem_channels}'"
+
+
+
+rule background_subtraction:
+    params:
+        thres=filter_thres,
+        subtraction_type=filter_subtraction_type
+    input:
+        "results/img/{sample}.tiff"
+    output:
+        "results/img_filt/{sample}_filt.tiff"
+    conda:
+        "workflow/envs/filter_hot_pixels.yaml"
+    script:
+        "workflow/scripts/background_subtraction.py"
+
+
+def get_img_samplenames(wildcards):
+    '''return full path tiff from wildcard'''
+    out = []
+    for s in wildcards:
+        if re.match("\S+_filt",s):
+            out.append("results/img_filt/" + s + ".tiff")
+        else:
+            out.append("results/img/" + s + ".tiff")
+    return out
+
+rule steinbock_separate_images_for_mask:
+    input:
+        img_dir=expand("results/img/{mcd}",mcd=mcd_files),
+        img_files="results/img/{sample}.tiff",
+        files=get_img_samplenames
+    output:
+        output_dir = directory("results/temp_img/{sample}"),
+        output_files = "results/temp_img/{sample}/{sample}.tiff",
+    shell:
+        "mkdir -p {output.output_dir} "
+        " && ln -rs {input.files} {output.output_files} "
+
+
+rule combine_panel_csv:
+    input:
+        "results/summary_panels/{sample}_summary.csv"
+    output:
+        "results/temp_summary_panels/{sample}_summary.csv"
+    shell:
+        "cp {input} {output}"
+
+rule steinbock_create_mask:
+    params:
+        pixelsize = image_pixelsize,
+        postprocessing_file=mesmer_postprocessing_paramsfile
+    input:
+        img = "results/temp_img/{all_samples}",
+        img_files = "results/temp_img/{all_samples}/{all_samples}.tiff",
+        panel = "results/temp_summary_panels/{all_samples}_summary.csv"
+    output:
+        tmp_dir=temp(directory("results/temp_masks_init/{all_samples}")),
+        tmp_masks=temp("results/temp_masks_init/{all_samples}/{all_samples}.tiff"),
+        masks="results/masks/{all_samples}.tiff"
+    container:
+        steinbock_container
+    threads: 8
+    shell: 
+        "mkdir -p {output.tmp_dir} "
+        " && OPENBLAS_NUM_THREADS={threads} steinbock segment deepcell --minmax --zscore --pixelsize {params.pixelsize} --postprocess {params.postprocessing_file} --img {input.img} --panel {input.panel} -o {output.tmp_dir}"
+        " && cp {output.tmp_masks} {output.masks}"
+
+rule steinbock_separate_masks_for_intensities:
+    input:
+        mask = "results/masks/{all_samples}.tiff",
+    output:
+        tmp_dir=temp(directory("results/temp_masks/{all_samples}")),
+        tmp_masks=temp("results/temp_masks/{all_samples}/{all_samples}.tiff")
+    shell:
+        "mkdir -p {output.tmp_dir} "
+        " && ln -rs {input.mask} {output.tmp_masks} "
+
+rule create_image_csv_2:
+    input: 
+        samples = expand("results/masks/{s}.tiff",s=all_samples),
+        filename = "config/samples.csv"
+    output:
+        images_csv="results/images.csv"
+    shell:
+        "workflow/scripts/create_images_csv.sh {output.images.csv} {input.samples}"
+
+
+rule steinbock_create_intensities:
+    input:
+        rules.steinbock_separate_masks_for_intensities.output,
+        img = "results/temp_img/{all_samples}",
+        img_files = "results/temp_img/{all_samples}/{all_samples}.tiff",
+        panel = "results/temp_summary_panels/{all_samples}_summary.csv",
+        mask = "results/temp_masks/{all_samples}",
+        mask_files = "results/temp_masks/{all_samples}/{all_samples}.tiff"
+    output:
+        output_file = "results/intensities/{all_samples}.csv",
+        tmp_dir= temp(directory("results/temp_intensities/{all_samples}")),
+        tmp_file=temp("results/temp_intensities/{all_samples}/{all_samples}.csv")
+    container:
+        steinbock_container
+    shell: 
+        "mkdir -p {output.tmp_dir} "
+        " && steinbock measure intensities --aggr mean --img {input.img} --panel {input.panel} --masks {input.mask} -o {output.tmp_dir} "
+        " && cp {output.tmp_dir}/*.csv {output.output_file}"
+
+
+rule steinbock_create_regionprops:
+    input:
+        rules.steinbock_separate_masks_for_intensities.output,
+        img = "results/temp_img/{all_samples}",
+        img_files = "results/temp_img/{all_samples}/{all_samples}.tiff",
+        mask = "results/temp_masks/{all_samples}",
+        mask_files = "results/temp_masks/{all_samples}/{all_samples}.tiff"
+    output:
+        output_file="results/regionprops/{all_samples}.csv",
+        tmp_dir= temp(directory("results/temp_regionprops/{all_samples}")),
+        tmp_file=temp("results/temp_regionprops/{all_samples}/{all_samples}.csv")
+    container:
+        steinbock_container
+    shell: 
+        "mkdir -p {output.tmp_dir} "
+        " && steinbock measure regionprops "
+        " --img {input.img} "
+        " --masks {input.mask} "
+        " -o {output.tmp_dir} "
+        " area centroid major_axis_length minor_axis_length "
+        " eccentricity euler_number orientation perimeter solidity "
+        " && cp {output.tmp_file} {output.output_file}"
+
+
+rule steinbock_create_neighbors:
+    params:
+        output_dir = "results/temp_neighbors"
+    input:
+        rules.steinbock_separate_masks_for_intensities.output,
+        img = "results/temp_img/{all_samples}",
+        img_files = "results/temp_img/{all_samples}/{all_samples}.tiff",
+        mask = "results/temp_masks/{all_samples}",
+        mask_files = "results/temp_masks/{all_samples}/{all_samples}.tiff"
+    output:
+        output_file="results/neighbors/{all_samples}.csv",
+        tmp_dir= temp(directory("results/temp_neighbors/{all_samples}")),
+        tmp_file=temp("results/temp_neighbors/{all_samples}/{all_samples}.csv")
+    container:
+        steinbock_container
+    shell: 
+        "steinbock measure neighbors "
+        " --masks {input.mask} "
+        " -o {output.tmp_dir} "
+        " --type centroids --dmax 15 "
+        " && cp {output.tmp_file} {output.output_file}"
+
+
+rule create_spe:
+    params:
+        steinbock_dir = "results"
+    input:
+        intensities = "results/intensities/{all_samples}.csv",
+        regionpropts = "results/regionprops/{all_samples}.csv",
+        neighbors = "results/neighbors/{all_samples}.csv",
+        panel_file = "results/temp_summary_panels/{all_samples}_summary.csv",
+        channel_metadata_file = channel_metadata_file
+    output:
+        "results/spe/raw/SPE_raw_{all_samples}.rds"
+    container:
+        "docker://retogerber/imcr:latest"
+    script:
+        "scripts/prepare_spe.R"
+

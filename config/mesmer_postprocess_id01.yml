@@ -1,0 +1,7 @@
+maxima_threshold: 0.1
+maxima_smooth: 0
+interior_threshold: 0.3
+interior_smooth: 2
+small_objects_threshold: 15
+fill_holes_threshold: 15
+radius: 2
