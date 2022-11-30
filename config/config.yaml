@@ -26,3 +26,6 @@ steinbock_container: "docker://ghcr.io/bodenmillergroup/steinbock:0.13.4"
 #    'type' (either 'state' for cell state marker, 'type' for cell type marker, or something else)
 channel_metadata_file: "config/channel_metadata.csv"
 
+## Cell level filtering
+# minimum cell area
+min_cell_area: 10

@@ -38,6 +38,8 @@ steinbock_container=config["steinbock_container"]
 channel_metadata_file=config["channel_metadata_file"]
 
 
+## Cell level filtering
+min_cell_area=config["min_cell_area"]
 
 ### Start of workflow.
 
@@ -67,12 +69,14 @@ rule all:
     input:
         expand("results/images_csv/{mcd_files}_images.csv",mcd_files=mcd_files),
         "results/images.csv",
-        "config/samples.csv",
+        #"config/samples.csv",
         #expand("results/summary_panels/{esamall}_summary.csv",esamall=samples),
         #expand("results/masks/{esamall}.tiff",esamall=all_samples),
         #expand("results/regionprops/{esamall}.csv",esamall=all_samples),
         #expand("results/intensities/{esamall}.csv",esamall=all_samples),
-        expand("results/spe/raw/SPE_raw_{esamall}.rds",esamall=all_samples)
+        expand("results/spe/raw/SPE_raw_{esamall}.rds",esamall=all_samples),
+        "results/spe/raw/SPE_combined_markedfilt.rds",
+        "results/html/visualize_filter_spe.html"
 
 
 rule extract_images_from_mcd:
@@ -94,7 +98,7 @@ rule extract_images_from_mcd:
         " && steinbock preprocess imc images --hpf 50 --mcd {output.tmpdir} --txt {output.tmpdir} --panel {output.sumpan} --imgout {output.img_dir} --infoout {output.imginfo_out} "
         " && mv {output.img_dir}/*.tiff {params.imgout}"
 
-ruleorder: create_image_csv_1 > create_image_csv_2
+#ruleorder: create_image_csv_1 > create_image_csv_2
 rule create_image_csv_1:
     input:
         sumpan=expand("results/images_csv/{mcd}_images.csv", mcd=mcd_files)
@@ -194,25 +198,25 @@ rule steinbock_separate_masks_for_intensities:
     input:
         mask = "results/masks/{all_samples}.tiff",
     output:
-        tmp_dir=temp(directory("results/temp_masks/{all_samples}")),
-        tmp_masks=temp("results/temp_masks/{all_samples}/{all_samples}.tiff")
+        tmp_dir=directory("results/temp_masks/{all_samples}"),
+        tmp_masks="results/temp_masks/{all_samples}/{all_samples}.tiff"
     shell:
         "mkdir -p {output.tmp_dir} "
         " && ln -rs {input.mask} {output.tmp_masks} "
 
-rule create_image_csv_2:
-    input: 
-        samples = expand("results/masks/{s}.tiff",s=all_samples),
-        filename = "config/samples.csv"
-    output:
-        images_csv="results/images.csv"
-    shell:
-        "workflow/scripts/create_images_csv.sh {output.images.csv} {input.samples}"
-
+#rule create_image_csv_2:
+#    input: 
+#        samples = expand("results/masks/{s}.tiff",s=all_samples),
+#        filename = "config/samples.csv"
+#    output:
+#        images_csv="results/images.csv"
+#    shell:
+#        "workflow/scripts/create_images_csv.sh {output.images.csv} {input.samples}"
+#
 
 rule steinbock_create_intensities:
     input:
-        rules.steinbock_separate_masks_for_intensities.output,
+        #rules.steinbock_separate_masks_for_intensities.output,
         img = "results/temp_img/{all_samples}",
         img_files = "results/temp_img/{all_samples}/{all_samples}.tiff",
         panel = "results/temp_summary_panels/{all_samples}_summary.csv",
@@ -232,7 +236,7 @@ rule steinbock_create_intensities:
 
 rule steinbock_create_regionprops:
     input:
-        rules.steinbock_separate_masks_for_intensities.output,
+        #rules.steinbock_separate_masks_for_intensities.output,
         img = "results/temp_img/{all_samples}",
         img_files = "results/temp_img/{all_samples}/{all_samples}.tiff",
         mask = "results/temp_masks/{all_samples}",
@@ -258,7 +262,7 @@ rule steinbock_create_neighbors:
     params:
         output_dir = "results/temp_neighbors"
     input:
-        rules.steinbock_separate_masks_for_intensities.output,
+        #rules.steinbock_separate_masks_for_intensities.output,
         img = "results/temp_img/{all_samples}",
         img_files = "results/temp_img/{all_samples}/{all_samples}.tiff",
         mask = "results/temp_masks/{all_samples}",
@@ -293,3 +297,40 @@ rule create_spe:
     script:
         "scripts/prepare_spe.R"
 
+rule combine_spe:
+    input:
+        samcsv="config/samples.csv",
+        spes=expand("results/spe/raw/SPE_raw_{all_samples}.rds",all_samples=all_samples)
+    output:
+        spe="results/spe/raw/SPE_combined.rds"
+    container:
+        "docker://retogerber/imcr:latest"
+    script:
+        "scripts/combine_spe.R"
+
+rule filter_spe:
+    params:
+        min_cell_area=min_cell_area
+    input:
+        spe="results/spe/raw/SPE_combined.rds",
+        masks=expand("results/masks/{all_samples}.tiff",all_samples=all_samples)
+    output:
+        spe="results/spe/raw/SPE_combined_markedfilt.rds"
+    container:
+        "docker://retogerber/imcr:latest"
+    script:
+        "scripts/filter_spe.R"
+
+rule visualize_filter_spe:
+    params:
+        min_cell_area=min_cell_area
+    input:
+        spe="results/spe/raw/SPE_combined_markedfilt.rds",
+        masks=expand("results/masks/{all_samples}.tiff",all_samples=all_samples),
+        images=expand("results/img/{all_samples}.tiff",all_samples=all_samples)
+    output:
+        html="results/html/visualize_filter_spe.html"
+    container:
+        "docker://retogerber/imcr:latest"
+    script:
+        "scripts/visualize_filter_spe.Rmd"

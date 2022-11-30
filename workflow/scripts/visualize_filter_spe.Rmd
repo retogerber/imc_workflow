@@ -1,0 +1,221 @@
+---
+title: "Visualize Filtering"
+author: ""
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    self_contained: TRUE
+    code_folding: "hide"
+    toc: true
+    toc_float: true
+    toc_collapsed: true
+toc_depth: 3
+number_sections: true
+theme: lumen
+editor_options:
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, dpi = 72, dev = "jpeg")
+all_times <- list()  # store the time for each chunk
+knitr::knit_hooks$set(time_it = local({
+  now <- NULL
+  function(before, options) {
+    if (before) {
+      now <<- Sys.time()
+    } else {
+      res <- difftime(Sys.time(), now)
+      all_times[[options$label]] <<- round(lubridate::as.duration(res))
+    }
+  }
+}))
+knitr::opts_chunk$set(time_it = TRUE)
+```
+# Setup
+
+load packages
+
+```{r setup_env}
+suppressPackageStartupMessages({
+  library(magrittr)
+  library(scater)
+  library(ggplot2)
+  library(SpatialExperiment)
+})
+```
+
+```{r}
+sce <- readRDS(here::here("results/spe/raw/SPE_combined_markedfilt.rds"))
+sce <- readRDS(here::here(snakemake@input[["spe"]]))
+```
+
+# Quality control
+
+## Flag border cells
+
+```{r}
+table(sce[["is_border_cell"]], useNA="ifany")
+```
+
+## image size
+
+```{r}
+table(sce[["is_small_image"]], useNA="ifany")
+```
+
+## cell size
+
+flag cells with NA area
+
+```{r}
+table(sce[["is_na_area"]], useNA="ifany")
+```
+
+flag cells with area smaller than `r snakemake@params[["min_cell_area"]]` pixels
+```{r}
+table(sce[["is_small_cell"]], useNA="ifany")
+```
+
+
+## celltype markers
+
+flag cells with mean cell type marker expression == 0 (all are equal to zero)
+
+```{r}
+table(sce[["is_zero_celltype_expression"]], useNA="ifany")
+```
+
+
+
+
+## number of cells per image
+
+```{r, fig.height=10,fig.width=10}
+ncells <- colData(sce[,sce$to_keep]) %>%
+    as.data.frame() %>% 
+    dplyr::group_by(sample_id) %>% 
+  dplyr::summarise(cell_area = sum(area),
+                   n=dplyr::n(),
+                   no_pixels=mean(no_pixels),
+                   covered_area = cell_area / no_pixels)
+
+table(ncells$n<100,useNA="ifany")
+
+fit <- lm(sqrt(n)~no_pixels,ncells)
+# plot(fit)
+sfit <- summary(fit)
+# which.max(abs(residuals(sfit)))
+
+
+pltlabels <- ncells[order(abs(residuals(sfit)),decreasing = "TRUE")[seq_len(min(length(unique(sce$sample_id)),5))],] 
+
+ggplot(ncells,aes(no_pixels,sqrt(n),color=covered_area)) +
+  geom_point() +
+  # geom_smooth(method = "lm",formula = y~x) +
+  geom_abline(intercept = coef(sfit)[1,1], slope=coef(sfit)[2,1]) +
+  ggrepel::geom_label_repel(aes(no_pixels,sqrt(n),label=sample_id),data=pltlabels)
+```
+
+
+
+
+## area coverage
+
+```{r}
+img_to_cytoimagelist <- function(img, mask, sample_name){
+  stopifnot(is(img, "Image"))
+  stopifnot(is(mask, "Image"))
+  stopifnot(is(sample_name, "character"))
+  
+  # create CytoImageList object
+  cytoimg <- cytomapper::CytoImageList(img)
+  # add metadata
+  cytomapper::channelNames(cytoimg) <- dimnames(img)[[3]]
+  names(cytoimg) <- as.character(sample_name)
+  mcols(cytoimg) <- DataFrame(sample = sample_name ,
+                                   sample_id = sample_name)
+  
+  # Create cellmask
+  tmpmask <- as.matrix(EBImage::imageData(mask))
+  # convert to integers
+  tmpmask <- matrix(as.integer(tmpmask), nrow = dim(tmpmask)[1], ncol = dim(tmpmask)[2])
+  all(is.integer(tmpmask))
+  all(is.integer(EBImage::imageData(mask)))
+  EBImage::imageData(mask) <- tmpmask
+  # create CytoImageList object for cell mask
+  cytomask <- cytomapper::CytoImageList(mask)
+  # add metadata
+  names(cytomask) <- as.character(sample_name)
+  mcols(cytomask) <- DataFrame(sample = sample_name ,
+                               sample_id = sample_name)
+  return(list(cytoimg=cytoimg, cytomask=cytomask))
+}
+```
+
+```{r, fig.width=20}
+area_coverage <- colData(sce[,sce$to_keep]) %>%
+    as.data.frame() %>%
+    dplyr::group_by(sample_id) %>%
+    dplyr::summarize(cell_area = sum(area),
+           no_pixels = mean(width_px) * mean(height_px)) %>%
+    dplyr::mutate(covered_area = cell_area / no_pixels) 
+
+
+# check for outlier in area coverage
+immad <- mad(na.omit(area_coverage$covered_area))
+immed <- median(na.omit(area_coverage$covered_area))
+
+area_coverage %>%
+    ggplot() +
+        geom_point(aes(sample_id, covered_area)) + 
+        theme_minimal(base_size = 15) +
+        ylim(c(0, 1)) + 
+        theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 8)) +
+        ylab("% covered area") + xlab("") +
+  geom_abline(slope=0,intercept=immed)+
+  geom_abline(slope=0,intercept=immed+2*immad)+
+  geom_abline(slope=0,intercept=immed-2*immad)
+
+is_outlier <- (area_coverage$covered_area < (immed-2*immad)) | (area_coverage$covered_area > (immed+2*immad))
+area_coverage[is_outlier,c("sample_id","cell_area","no_pixels","covered_area")]
+```
+
+
+```{r cytomapper_plotPixels, fig.width=10, fig.height=10, results='asis'}
+cat("### Outliers {.tabset}\n\n")
+for(i in which(is_outlier)){
+  cat(paste0("#### ",area_coverage[i,][["sample_id"]],"\n\n"))
+  samind <- area_coverage$sample_id[[i]]
+  img_file_name <- snakemake@input[["images"]][stringr::str_detect(snakemake@input[["images"]],samind)]
+  img <- EBImage::readImage(here::here(img_file_name))
+  mask_file_name <- snakemake@input[["masks"]][stringr::str_detect(snakemake@input[["masks"]],samind)]
+  mask <- EBImage::readImage(here::here(mask_file_name))*(2^16-1)
+  
+  cytols <- img_to_cytoimagelist(img,mask, area_coverage$sample_id[i])
+  
+  tmpsce <- sce[,sce$sample_id == area_coverage$sample_id[i]]
+  hist(colMeans(assay(tmpsce,"exprs")[c("DNA1","DNA2"),]),breaks=100,
+       main="Histogram of DNA intensity", xlab="Mean DNA intensitiy")
+  cat("\n\n")
+  cytomapper::plotPixels(cytols$cytoimg, tmpsce,mask = cytols$cytomask, cell_id = "ObjectNumber", img_id = "sample_id", colour_by = as.character(which(rownames(tmpsce)=="DNA1")),legend=NULL, colour = list(`36`=c("black",viridis::viridis(2)[2])))
+  cat("\n\n")
+}
+```
+
+
+# Flag outlier cells (marker intensity)
+
+```{r}
+table(sce[["is_outlier_expression"]])
+```
+
+# Summary
+
+Cells to remove:
+
+```{r}
+table(!sce[["to_keep"]])
+```
+
+
