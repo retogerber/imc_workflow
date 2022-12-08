@@ -1,0 +1,14 @@
+name: napari_vis
+channels:
+    - conda-forge
+    - defaults
+dependencies:
+  - pip
+  - numpy
+  - pandas
+  - tifffile
+  - napari
+  - pyyaml
+  - click
+  - pip:
+    - opencv-contrib-python-headless
