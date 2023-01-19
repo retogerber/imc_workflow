@@ -1,0 +1,92 @@
+---
+title: "Visualize Batch"
+author: ""
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    self_contained: TRUE
+    code_folding: "hide"
+    toc: true
+    toc_float: true
+    toc_collapsed: true
+toc_depth: 3
+number_sections: true
+theme: lumen
+editor_options:
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, dpi = 72, dev = "jpeg")
+all_times <- list()  # store the time for each chunk
+knitr::knit_hooks$set(time_it = local({
+  now <- NULL
+  function(before, options) {
+    if (before) {
+      now <<- Sys.time()
+    } else {
+      res <- difftime(Sys.time(), now)
+      all_times[[options$label]] <<- round(lubridate::as.duration(res))
+    }
+  }
+}))
+knitr::opts_chunk$set(time_it = TRUE)
+```
+# Setup
+
+load packages
+
+```{r setup_env}
+suppressPackageStartupMessages({
+  library(SpatialExperiment)
+  library(ggplot2)
+})
+```
+
+```{r}
+# sce <- readRDS(here::here("data/ECM/results/spe/filt/SPE_combined_01.rds"))
+sce <- readRDS(here::here(snakemake@input[["spe"]]))
+
+# cols_for_batch <- c("sample","tissue")
+cols_for_batch <- snakemake@params[["cols_for_batch"]]
+cols_for_batch[cols_for_batch=="sample"] <- "sample_id"
+```
+
+
+```{r}
+set.seed(123)
+orderc <- sample(seq_along(colnames(sce)))
+sce_ran <- sce[,orderc]
+```
+
+```{r plots_1, results='asis', fig.width=16, fig.height=16, warning=FALSE, message=FALSE}
+for (colour_by in cols_for_batch) {
+  cat(paste0("\n\n# Batch: ",colour_by," {.tabset}\n\n"))
+  cat("\n\n## PCA uncorrected\n\n")
+  plot(scater::plotReducedDim(sce_ran,"PCA",colour_by = colour_by) + scale_color_viridis_d() +
+      coord_fixed() + geom_density2d(color="black",alpha=0.5))
+  cat("\n\n## PCA corrected\n\n")
+  plot(scater::plotReducedDim(sce_ran,"harmony",colour_by = colour_by) + scale_color_viridis_d() +
+      coord_fixed() + geom_density2d(color="black",alpha=0.5))
+  cat("\n\n## UMAP uncorrected\n\n")
+  plot(scater::plotReducedDim(sce_ran,"UMAP",colour_by = colour_by) + scale_color_viridis_d() +
+      coord_fixed() + geom_density2d(color="black",alpha=0.5))
+  cat("\n\n## UMAP corrected\n\n")
+  plot(scater::plotReducedDim(sce_ran,"UMAP_harmony",colour_by = colour_by) + scale_color_viridis_d() +
+      coord_fixed() + geom_density2d(color="black",alpha=0.5))
+}
+```
+
+
+
+```{r plots_2, results='asis', fig.width=16, fig.height=16, warning=FALSE, message=FALSE}
+for (cols in cols_for_batch) {
+  cat(paste0("\n\n# Batch facetted: ",cols," {.tabset}\n\n"))
+  cat("\n\n## UMAP uncorrected\n\n")
+  plot(scater::plotReducedDim(sce_ran,"UMAP",colour_by = "sample_id",other_fields=c(color_sample=cols)) + scale_color_viridis_d() +
+      coord_fixed() + geom_density2d(color="black",alpha=0.5) + facet_wrap(dplyr::vars(!!dplyr::sym(cols))) + theme(legend.position = "none"))
+  cat("\n\n## UMAP corrected\n\n")
+  plot(scater::plotReducedDim(sce_ran,"UMAP_harmony",colour_by = "sample_id",other_fields=c(color_sample=cols)) + scale_color_viridis_d() +
+      coord_fixed() + geom_density2d(color="black",alpha=0.5) + facet_wrap(dplyr::vars(!!dplyr::sym(cols))) + theme(legend.position = "none"))
+}
+```

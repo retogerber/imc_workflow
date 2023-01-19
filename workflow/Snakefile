@@ -41,6 +41,24 @@ channel_metadata_file=config["channel_metadata_file"]
 ## Cell level filtering
 min_cell_area=config["min_cell_area"]
 
+## sample level metadata
+sample_metadata=config["sample_metadata"]
+cols_for_batch=config["cols_for_batch"]
+
+## cell mixing score number of neighbors
+k_cms=config["k_cms"]
+
+## annotation
+clustering_annotation_file=config["clustering_annotation_file"]
+clustering_used=config["clustering_used"]
+if clustering_used == "":
+    get_annot_spe=2
+else:
+    get_annot_spe=3
+
+
+
+
 ### Start of workflow.
 
 print(".mcd files:")
@@ -334,3 +352,104 @@ rule visualize_filter_spe:
         "docker://retogerber/imcr:latest"
     script:
         "scripts/visualize_filter_spe.Rmd"
+
+
+
+rule batch_correction_spe:
+    params:
+        cols_for_batch=cols_for_batch
+    threads: 32
+    input:
+        spe="results/spe/raw/SPE_combined_markedfilt.rds",
+        sample_metadata=sample_metadata
+    output:
+        spe="results/spe/filt/SPE_combined_01.rds"
+    container:
+        "docker://retogerber/imcr:latest"
+    script:
+        "scripts/batch_correction_spe.R"
+
+
+
+rule visualize_batch_spe:
+    params:
+        cols_for_batch=cols_for_batch
+    threads: 16
+    input:
+        spe="results/spe/filt/SPE_combined_01.rds"
+    output:
+        html="results/html/visualize_batch_spe.html"
+    container:
+        "docker://retogerber/imcr:latest"
+    script:
+        "scripts/visualize_batch_spe.Rmd"
+
+rule batch_evaluation_spe:
+    threads: 32
+    params:
+        k=k_cms,
+        cols_for_batch=cols_for_batch
+    input:
+        spe="results/spe/filt/SPE_combined_01.rds"
+    output:
+        spe="results/spe/filt/SPE_combined_01_cms.rds"
+    container:
+        "docker://retogerber/imcr:latest"
+    script:
+        "scripts/batch_evaluation_spe.R"
+
+rule visualize_batch_evaluation_spe:
+    threads: 1
+    params:
+        cols_for_batch=cols_for_batch
+    input:
+        spe="results/spe/filt/SPE_combined_01_cms.rds"
+    output:
+        html="results/html/visualize_batch_evaluation_spe.html"
+    container:
+        "docker://retogerber/imcr:latest"
+    script:
+        "scripts/visualize_batch_evaluation_spe.Rmd"
+
+
+
+rule cluster_spe:
+    threads: 16
+    input:
+        spe="results/spe/filt/SPE_combined_01.rds"
+    output:
+        spe="results/spe/filt/SPE_combined_02.rds"
+    container:
+        "docker://retogerber/imcr:latest"
+    script:
+        "scripts/cluster_spe.R"
+
+
+rule visualize_cluster_spe:
+    threads: 16
+    input:
+        spe="results/spe/filt/SPE_combined_02.rds"
+    output:
+        html="results/html/visualize_cluster_spe.html"
+    container:
+        "docker://retogerber/imcr:latest"
+    script:
+        "scripts/visualize_cluster_spe.Rmd"
+
+
+rule annotate_spe:
+    threads: 1
+    params:
+        clustering_used=clustering_used
+    input:
+        spe="results/spe/filt/SPE_combined_02.rds",
+        clustering_annotation_file=clustering_annotation_file
+    output:
+        spe="results/spe/filt/SPE_combined_03.rds"
+    container:
+        "docker://retogerber/imcr:latest"
+    script:
+        "scripts/annotate_spe.R"
+
+
+

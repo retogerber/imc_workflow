@@ -1,0 +1,86 @@
+---
+title: "Evaluate Batch"
+author: ""
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    self_contained: TRUE
+    code_folding: "hide"
+    toc: true
+    toc_float: true
+    toc_collapsed: true
+toc_depth: 3
+number_sections: true
+theme: lumen
+editor_options:
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, dpi = 72, dev = "jpeg")
+all_times <- list()  # store the time for each chunk
+knitr::knit_hooks$set(time_it = local({
+  now <- NULL
+  function(before, options) {
+    if (before) {
+      now <<- Sys.time()
+    } else {
+      res <- difftime(Sys.time(), now)
+      all_times[[options$label]] <<- round(lubridate::as.duration(res))
+    }
+  }
+}))
+knitr::opts_chunk$set(time_it = TRUE)
+```
+# Setup
+
+load packages
+
+```{r setup_env}
+suppressPackageStartupMessages({
+  library(SpatialExperiment)
+  library(BiocParallel)
+})
+```
+
+
+
+```{r}
+sce <- readRDS(here::here("data/ECM/results/spe/filt/SPE_combined_01_cms.rds"))
+sce <- readRDS(here::here(snakemake@input[["spe"]]))
+sce <- sce[,sample(seq_len(dim(sce)[2]),1000)]
+
+cols_for_batch <- c("sample","slide","tissue")
+cols_for_batch <- snakemake@params[["cols_for_batch"]]
+cols_for_batch[cols_for_batch=="sample"] <- "sample_id"
+stopifnot(all(cols_for_batch %in% colnames(colData(sce))))
+```
+
+
+
+```{r}
+set.seed(123)
+orderc <- sample(seq_along(colnames(sce)))
+```
+
+```{r plots_1, results='asis', fig.width=8, fig.height=8, warning=FALSE, message=FALSE}
+for (colour_by in cols_for_batch) {
+  uncor_colnam <- colnames(colData(sce))[stringr::str_detect(colnames(colData(sce)),paste0(colour_by,"_uncorrected"))]
+  harmo_colnam <- colnames(colData(sce))[stringr::str_detect(colnames(colData(sce)),paste0(colour_by,"_harmony"))]
+  
+  cat(paste0("\n\n# Batch: ",colour_by," {.tabset}\n\n"))
+  cat("\n\n## UMAP uncorrected\n\n")
+  plot(scater::plotReducedDim(sce[,orderc],"UMAP",colour_by = uncor_colnam) + ggplot2::scale_color_viridis_d())
+  cat("\n\n## UMAP corrected\n\n")
+  plot(scater::plotReducedDim(sce[,orderc],"UMAP_corrected",colour_by = harmo_colnam) + ggplot2::scale_color_viridis_d())
+}
+```
+
+
+```{r plots_2, results='asis', fig.width=8, fig.height=8, warning=FALSE, message=FALSE}
+cat(paste0("\n\n# Batch Histogram: {.tabset}\n\n"))
+for (colour_by in cols_for_batch) {
+  cat(paste0("\n\n## ",colour_by,"\n\n"))
+  CellMixS::visHist(sce, metric=paste0("cms.",colour_by))
+}
+```

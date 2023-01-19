@@ -1,0 +1,268 @@
+---
+title: "Visualize Cluster"
+author: ""
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    self_contained: TRUE
+    code_folding: "hide"
+    toc: true
+    toc_float: true
+    toc_collapsed: true
+toc_depth: 3
+number_sections: true
+theme: lumen
+editor_options:
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, dpi = 72, dev = "jpeg")
+all_times <- list()  # store the time for each chunk
+knitr::knit_hooks$set(time_it = local({
+  now <- NULL
+  function(before, options) {
+    if (before) {
+      now <<- Sys.time()
+    } else {
+      res <- difftime(Sys.time(), now)
+      all_times[[options$label]] <<- round(lubridate::as.duration(res))
+    }
+  }
+}))
+knitr::opts_chunk$set(time_it = TRUE)
+```
+# Setup
+
+load packages
+
+```{r setup_env}
+suppressPackageStartupMessages({
+  library(SpatialExperiment)
+  library(ggraph)
+  library(future.apply)
+  library(magrittr)
+})
+```
+
+```{r}
+# sce <- readRDS(here::here("data/ECM/results/spe/filt/SPE_combined_02.rds"))
+sce <- readRDS(here::here(snakemake@input[["spe"]]))
+# n_workers <- 16
+n_workers <- snakemake@threads
+
+# sce <- sce[,sample(seq_len(dim(sce)[2]),1000)]
+```
+
+
+```{r clustree, results='asis', fig.height=8, fig.width=8}
+cat("\n\n## Clustree {.tabset}\n\n")
+cat("\n\n### leiden")
+clustree::clustree(sce, prefix = "leiden_k20_res",exprs = "exprs")
+cat("\n\n### walktrap")
+clustree::clustree(sce, prefix = "walktrap_k",exprs = "exprs")
+cat("\n\n")
+```
+
+```{r}
+clu_name <- colnames(colData(sce))[stringr::str_detect(colnames(colData(sce)),"(leiden_k)|(walktrap_k)")]
+```
+
+## Silhouette Width {.tabset}
+
+```{r silhouette_width, fig.width=6, fig.height=10, results='asis'}
+for(c in clu_name){
+  if(length(unique(sce[[c]]))>1){
+    cat(paste0("### ",c,"\n\n"))
+    sil.approx <- bluster::approxSilhouette(reducedDim(sce, "harmony"), clusters=sce[[c]])
+    sil.data <- as.data.frame(sil.approx)
+    sil.data$closest <- factor(ifelse(sil.data$width > 0, sce[[c]], sil.data$other))
+    sil.data$cluster <- sce[[c]]
+    
+    nclu <- nlevels(as.factor(sce[[c]]))
+    if(nclu<=10){
+      col_vals <- scater:::.get_palette("tableau10medium")
+    } else if(nclu<=20){
+      col_vals <- scater:::.get_palette("tableau20")
+    } else{
+      col_vals <- viridis::viridis(nclu)
+    }
+    names(col_vals) <- sort(unique(sce[[c]]))
+    set.seed(123)
+    ids <- c()
+    for(i in unique(sce[[c]])){
+      in_clu <- sce[[c]]==i
+      nps <- min(sum(in_clu),round(min(5000,sum(in_clu)/10)))
+      ids <- c(ids,seq_len(ncol(sce))[in_clu][sample(seq_len(sum(in_clu)),nps, replace = FALSE)])
+    }
+    set.seed(123)
+    pl1 <- ggplot(sil.data[sample(ids),], aes(x=cluster, y=width, colour=closest)) +
+        ggbeeswarm::geom_quasirandom(method="smiley") +
+      scale_color_manual(values = col_vals)
+    
+    tab <- table(Cluster=sce[[c]], sil.data$closest)
+    tab <- (tab - rowMeans(tab))/rowSums(tab)
+    pl2 <- tab %>%
+      as.data.frame() %>%
+      dplyr::rename(X = Cluster, Y=Var2, Z=Freq) %>% 
+      ggplot(aes(X, Y, fill= Z)) + 
+        geom_tile() +
+      scale_fill_continuous(type="viridis") +
+      labs(x="cluster",y="cluster", fill="rowwise scaled\nnumber of\ncells")
+    
+    print(ggpubr::ggarrange(pl1,pl2,ncol=1))
+    cat(paste0("\n\n"))
+  }
+}
+```
+
+
+
+## UMAPs {.tabset}
+
+```{r clu_umap, fig.height=10, fig.width=10,results='asis'}
+for(c in clu_name){
+  set.seed(11234)
+  ids <- c()
+  for(i in unique(sce[[c]])){
+    in_clu <- sce[[c]]==i
+    nps <- min(sum(in_clu),round(min(20000,sum(in_clu)/2)))
+    ids <- c(ids,seq_len(ncol(sce))[in_clu][sample(seq_len(sum(in_clu)),nps, replace = FALSE)])
+  }
+  set.seed(11234)
+  ids <- sample(ids)
+  cat(paste0("### ",c,"\n\n"))
+  print(scater::plotReducedDim(sce[,ids], "UMAP_harmony",colour_by=c, text_by=c) +
+      coord_fixed() + geom_density2d(color="black",alpha=0.5))
+  cat("\n\n")
+  print(knitr::kable(set_colnames(as.data.frame(table(sce[[c]])),c(c,"Number of Cells"))))
+  cat(paste0("\n\n"))
+}
+```
+
+## Violin plots {.tabset}
+
+```{r clu_violin, fig.height=20, fig.width=10,results='asis'}
+for(c in clu_name){
+  set.seed(1234)
+  ids <- c()
+  for(i in unique(sce[[c]])){
+    in_clu <- sce[[c]]==i
+    nps <- min(sum(in_clu),round(min(1000,sum(in_clu)/10)))
+    ids <- c(ids,seq_len(ncol(sce))[in_clu][sample(seq_len(sum(in_clu)),nps, replace = FALSE)])
+  }
+  set.seed(1234)
+  ids <- sample(ids)
+  cat(paste0("### ",c,"\n\n"))
+  print(scater::plotExpression(sce[,ids], features=rownames(sce)[(rowData(sce)$type == "type") & rowData(sce)$use_for_clustering], x=c, exprs_values = "exprs", colour_by = c, ncol=3) +
+  labs(color=c))
+  cat("\n\n")
+}
+```
+
+
+
+## Heatmaps {.tabset}
+
+```{r clu_heatmap,fig.height=10, results='asis'}
+for(c in clu_name){
+  cat(paste0("### ",c,"\n\n"))
+  pb_sce <- scuttle::summarizeAssayByGroup(sce[rownames(sce)[(rowData(sce)$type == "type") & rowData(sce)$use_for_clustering],], ids=sce[[c]], assay.type="exprs")
+tryCatch({
+  assay(pb_sce,"mean") %>% 
+    apply(1,scale) %>%
+    t() %>% 
+    set_colnames(seq_along(colnames(pb_sce))) %>% 
+    pheatmap::pheatmap(
+                     cluster_rows = FALSE,
+                     cluster_cols = TRUE) %>% 
+    print()
+    },error=function(e)e)
+  cat(paste0("\n\n"))
+}
+
+```
+
+
+
+
+# Markers
+
+```{r run_findMarkers, message=FALSE, warning=FALSE}
+plan(multisession,workers=min(n_workers,length(clu_name)))
+
+options(future.globals.maxSize=+Inf)
+sce_small <- sce
+assay(sce_small,"counts") <- NULL
+reducedDim(sce_small,"UMAP") <- NULL
+reducedDim(sce_small,"UMAP_harmony") <- NULL
+reducedDim(sce_small,"PCA") <- NULL
+reducedDim(sce_small,"harmony") <- NULL
+
+use_for_fm <- purrr::map_int(clu_name,~length(unique(sce_small[[.x]]))) > 1
+set.seed(123)
+fm_out_ls <- future_lapply(clu_name[use_for_fm], future.globals = list(sce_small=sce_small), future.seed=TRUE, function(c){
+  suppressPackageStartupMessages(library(SpatialExperiment))
+  scran::findMarkers(sce_small[rowData(sce_small)$type == "type",], colData(sce_small)[[c]], 
+                             test.type="t", pval.type="all", assay.type="exprs",
+                             add.summary=TRUE)
+})
+rm(sce_small)
+names(fm_out_ls) <- clu_name[use_for_fm]
+metadata(sce)$findMarkers_out <- fm_out_ls
+
+top_markers_ls <- purrr::map(fm_out_ls, function(fm_out) {
+  top_markers <- purrr::map(seq_along(fm_out),~{
+    tmp <- fm_out[[.x]][,c("FDR","summary.logFC"),drop=FALSE]
+    tmp$sig <- tmp$FDR<1e-3
+    tmp <- tmp[tmp$sig,]
+    head(tmp[order(!tmp$sig,-tmp$summary.logFC),][,c("FDR","summary.logFC"),drop=FALSE],n=10)
+    })
+  names(top_markers) <- names(fm_out)
+  top_markers
+})
+```
+
+
+```{r findMarkers_results, results='asis'}
+cat("## Markers per cluster {.tabset}\n\n")
+for(c in names(top_markers_ls)){
+  cat(paste0("### ",c," {.tabset}\n\n"))
+  for(i in seq_along(top_markers_ls[[c]])){
+    cat("#### ",i," \n\n")
+    top_markers_ls[[c]][[i]] %>% 
+      as.data.frame() %>% 
+      dplyr::mutate_if(is.numeric, ~as.character(signif(., 3))) %>% 
+      knitr::kable() %>% 
+      print()
+    cat("\n\n")
+  }
+}
+```
+
+## Violin plots cell state {.tabset}
+
+```{r clu_violin_state, fig.height=10, fig.width=10,results='asis'}
+for(c in clu_name){
+  set.seed(12345)
+  ids <- c()
+  for(i in unique(sce[[c]])){
+    in_clu <- sce[[c]]==i
+    nps <- min(sum(in_clu),round(min(1000,sum(in_clu)/10)))
+    ids <- c(ids,seq_len(ncol(sce))[in_clu][sample(seq_len(sum(in_clu)),nps, replace = FALSE)])
+  }
+  set.seed(12345)
+  ids <- sample(ids)
+  cat(paste0("### ",c,"\n\n"))
+  print(scater::plotExpression(sce[,ids], features=rownames(sce)[(rowData(sce)$type == "state")], x=c, exprs_values = "exprs", colour_by = c, ncol=3) +
+  labs(color=c))
+  cat("\n\n")
+}
+```
+
+
+
+
+
+
+

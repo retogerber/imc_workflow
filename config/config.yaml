@@ -29,3 +29,22 @@ channel_metadata_file: "config/channel_metadata.csv"
 ## Cell level filtering
 # minimum cell area
 min_cell_area: 10
+
+## Sample metadata csv
+# one column has to have name 'sample'
+sample_metadata: "config/sample_metadata.csv"
+# colnames in 'sample_metadata' that are used for batch correction
+cols_for_batch: ["sample","slide","tissue"]
+
+## cell mixing score number of neighbors
+k_cms: 500
+
+
+## Annotation 
+# name of the clustering used for annotation
+clustering_used: ""
+# name of the csv file containing annotation labels, two columns are expected:
+#   "cluster": the cluster number (corresponding to the clusters in "clustering_used" parameter)
+#   "celltype": name of the cluster
+clustering_annotation_file: "config/clustering_annotation_file.csv"
+
