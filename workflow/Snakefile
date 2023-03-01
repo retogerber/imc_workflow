@@ -69,11 +69,7 @@ if os.path.isfile("config/samples.csv"):
     with open('config/samples.csv', 'r') as fil:
         samples = fil.read().split('\n')
         del samples[-1]
-    
-    if filter_thres > 0:
-        all_samples = samples + "_filt"
-    else:
-        all_samples = samples
+    all_samples = samples
     print("images:")
     print(all_samples)
 else:
@@ -93,8 +89,13 @@ rule all:
         #expand("results/regionprops/{esamall}.csv",esamall=all_samples),
         #expand("results/intensities/{esamall}.csv",esamall=all_samples),
         expand("results/spe/raw/SPE_raw_{esamall}.rds",esamall=all_samples),
-        "results/spe/raw/SPE_combined_markedfilt.rds",
-        "results/html/visualize_filter_spe.html"
+        expand("results/spe/filt/SPE_combined_0{v}.rds",v=get_annot_spe),
+        "results/spe/filt/SPE_combined_01_cms.rds",
+        "results/html/visualize_filter_spe.html",
+        "results/html/visualize_batch_spe.html",
+        #"results/html/visualize_batch_evaluation_spe.html",
+        "results/html/visualize_cluster_spe.html"
+
 
 
 rule extract_images_from_mcd:
@@ -133,17 +134,26 @@ rule create_samples_csv:
     shell:
         "cat {input.imcsv} | cut -d, -f1 | sed 1d | sed 's/.tiff//g' > {output.samcsv}"
 
+def mcd_name_from_sample_name(wildcards):
+    str_output = re.sub("_[0-9]{3}$", "", wildcards.sample)
+    return "results/raw/"+str_output+".mcd"
+
+def mcd_summary_panel_from_sample_name(wildcards):
+    str_output = re.sub("_[0-9]{3}$", "", wildcards.sample)
+    return "results/summary_panels/"+str_output+"_summary.csv"
 
 rule create_individual_summary_panels:
     params:
         nuc_channels=nuc_channels,
         mem_channels=mem_channels
     input:
-        mcd_files=expand("results/summary_panels/{mcd}_summary.csv",mcd=mcd_files)
+        #mcd_files=rules.extract_images_from_mcd.output.sumpan
+        summary_panel_in=mcd_summary_panel_from_sample_name
+        #mcd_files=expand("results/summary_panels/{mcd}_summary.csv",mcd=mcd_files)
     output:
-        summary_panels="results/summary_panels/{samples}_summary.csv"
+        summary_panels="results/summary_panels/{sample}_summary.csv"
     shell:
-        "workflow/scripts/create_individual_summary_panels.sh '{input.mcd_files}' '{output.summary_panels}' '{params.nuc_channels}' '{params.mem_channels}'"
+        "workflow/scripts/create_individual_summary_panel.sh -s '{input.summary_panel_in}' -p '{output.summary_panels}' -n '{params.nuc_channels}' -m '{params.mem_channels}'"
 
 
 
@@ -152,9 +162,11 @@ rule background_subtraction:
         thres=filter_thres,
         subtraction_type=filter_subtraction_type
     input:
-        "results/img/{sample}.tiff"
+        "results/img/{sample}.tiff",
+        #mcd_files=rules.extract_images_from_mcd.output.sumpan
+        mcd_files=mcd_name_from_sample_name
     output:
-        "results/img_filt/{sample}_filt.tiff"
+        "results/img_filt/{sample}.tiff"
     conda:
         "workflow/envs/filter_hot_pixels.yaml"
     script:
@@ -165,7 +177,7 @@ def get_img_samplenames(wildcards):
     '''return full path tiff from wildcard'''
     out = []
     for s in wildcards:
-        if re.match("\S+_filt",s):
+        if filter_thres > 0:
             out.append("results/img_filt/" + s + ".tiff")
         else:
             out.append("results/img/" + s + ".tiff")
