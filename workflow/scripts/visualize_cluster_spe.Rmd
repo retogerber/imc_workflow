@@ -214,6 +214,7 @@ metadata(sce)$findMarkers_out <- fm_out_ls
 top_markers_ls <- purrr::map(fm_out_ls, function(fm_out) {
   top_markers <- purrr::map(seq_along(fm_out),~{
     tmp <- fm_out[[.x]][,c("FDR","summary.logFC"),drop=FALSE]
+    tmp <- tmp[!is.na(tmp$FDR),]
     tmp$sig <- tmp$FDR<1e-3
     tmp <- tmp[tmp$sig,]
     head(tmp[order(!tmp$sig,-tmp$summary.logFC),][,c("FDR","summary.logFC"),drop=FALSE],n=10)

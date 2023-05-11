@@ -6,23 +6,11 @@ suppressPackageStartupMessages({
   library(SpatialExperiment)
 })
 
-# load used images
-
-samplenamefile <- snakemake@input[["samcsv"]]
-images_spec <- read.csv(here::here(samplenamefile),header=FALSE)[[1]]
-
-images_pres <- snakemake@input[["spes"]]
-iminds <- sapply(images_spec, function(im) which(stringr::str_detect(images_pres,im) ))
-images_pres <- images_pres[iminds]
-
-steinbock_dir <- here::here("results")
-
-
-
 
 ## Read SPE
 
 #load spatialExperiment objects and combine
+images_pres <- snakemake@input[["spes"]]
 
 se_ls <- purrr::map(images_pres, function(img_name){
   readRDS(here::here(img_name))

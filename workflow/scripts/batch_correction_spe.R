@@ -29,10 +29,12 @@ cols_for_batch <- snakemake@params[["cols_for_batch"]]
 # check
 stopifnot(all(cols_for_batch %in% colnames(metadf)))
 stopifnot("sample" %in% colnames(metadf))
+metadf <- dplyr::mutate(metadf, sample = as.character(sample))
 
 # add metadata
 colData(sce) <- colData(sce) %>%
   as.data.frame() %>%
+  dplyr::mutate(sample_id = as.character(sample_id)) %>%
   dplyr::left_join(metadf,
                    by=c("sample_id"="sample")) %>%
   DataFrame(row.names=rownames(colData(sce)))

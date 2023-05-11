@@ -2,6 +2,7 @@ import re
 import csv
 import os
 import glob
+import pandas as pd 
 
 # working directory
 workdir: "."
@@ -57,40 +58,14 @@ else:
     get_annot_spe=3
 
 
-
-
 ### Start of workflow.
 
-print(".mcd files:")
-print(mcd_files)
-
-# open file with sample names
-if os.path.isfile("config/samples.csv"):
-    with open('config/samples.csv', 'r') as fil:
-        samples = fil.read().split('\n')
-        del samples[-1]
-    all_samples = samples
-    print("images:")
-    print(all_samples)
-else:
-    all_samples=[]
-    samples=[]
-    print("No images found, run this workflow to generate them.")
-
-
+#print(".mcd files:")
+#print(mcd_files)
 
 rule all:
     input:
-        expand("results/images_csv/{mcd_files}_images.csv",mcd_files=mcd_files),
-        "results/images.csv",
-        #"config/samples.csv",
-        #expand("results/summary_panels/{esamall}_summary.csv",esamall=samples),
-        #expand("results/masks/{esamall}.tiff",esamall=all_samples),
-        #expand("results/regionprops/{esamall}.csv",esamall=all_samples),
-        #expand("results/intensities/{esamall}.csv",esamall=all_samples),
-        expand("results/spe/raw/SPE_raw_{esamall}.rds",esamall=all_samples),
         expand("results/spe/filt/SPE_combined_0{v}.rds",v=get_annot_spe),
-        "results/spe/filt/SPE_combined_01_cms.rds",
         "results/html/visualize_filter_spe.html",
         "results/html/visualize_batch_spe.html",
         #"results/html/visualize_batch_evaluation_spe.html",
@@ -117,8 +92,7 @@ rule extract_images_from_mcd:
         " && steinbock preprocess imc images --hpf 50 --mcd {output.tmpdir} --txt {output.tmpdir} --panel {output.sumpan} --imgout {output.img_dir} --infoout {output.imginfo_out} "
         " && mv {output.img_dir}/*.tiff {params.imgout}"
 
-#ruleorder: create_image_csv_1 > create_image_csv_2
-rule create_image_csv_1:
+checkpoint create_image_csv:
     input:
         sumpan=expand("results/images_csv/{mcd}_images.csv", mcd=mcd_files)
     output:
@@ -126,13 +100,25 @@ rule create_image_csv_1:
     shell:
         "first_file=$( echo {input.sumpan}  ) && first_file=( ${{first_file[0]}} ) && head -n 1 ${{first_file[0]}} > {output.imcsv} && tail -n+2 -q {input.sumpan} >> {output.imcsv}"
 
-rule create_samples_csv:
-    input:
-        imcsv="results/images.csv"
-    output:
-        samcsv="config/samples.csv"
-    shell:
-        "cat {input.imcsv} | cut -d, -f1 | sed 1d | sed 's/.tiff//g' > {output.samcsv}"
+def get_samples_from_images_csv(wildcards):
+    """Return samples from file 'results/images.csv'"""
+    with checkpoints.create_image_csv.get(**wildcards).output[0].open() as f:
+        samples_df = pd.read_csv(f)
+        images = samples_df["image"].tolist()
+        samples = [ os.path.splitext(im)[0] for im in images ]
+        return samples
+
+def get_img_from_images_csv(wildcards):
+    samples = get_samples_from_images_csv(wildcards)
+    return [ "results/img/"+sam+".tiff" for sam in samples ]
+
+#rule create_samples_csv:
+#    input:
+#        imcsv="results/images.csv"
+#    output:
+#        samcsv="config/samples.csv"
+#    shell:
+#        "cat {input.imcsv} | cut -d, -f1 | sed 1d | sed 's/.tiff//g' > {output.samcsv}"
 
 def mcd_name_from_sample_name(wildcards):
     str_output = re.sub("_[0-9]{3}$", "", wildcards.sample)
@@ -147,14 +133,11 @@ rule create_individual_summary_panels:
         nuc_channels=nuc_channels,
         mem_channels=mem_channels
     input:
-        #mcd_files=rules.extract_images_from_mcd.output.sumpan
         summary_panel_in=mcd_summary_panel_from_sample_name
-        #mcd_files=expand("results/summary_panels/{mcd}_summary.csv",mcd=mcd_files)
     output:
         summary_panels="results/summary_panels/{sample}_summary.csv"
     shell:
         "workflow/scripts/create_individual_summary_panel.sh -s '{input.summary_panel_in}' -p '{output.summary_panels}' -n '{params.nuc_channels}' -m '{params.mem_channels}'"
-
 
 
 rule background_subtraction:
@@ -162,8 +145,7 @@ rule background_subtraction:
         thres=filter_thres,
         subtraction_type=filter_subtraction_type
     input:
-        "results/img/{sample}.tiff",
-        #mcd_files=rules.extract_images_from_mcd.output.sumpan
+        img = get_img_from_images_csv,
         mcd_files=mcd_name_from_sample_name
     output:
         "results/img_filt/{sample}.tiff"
@@ -234,19 +216,8 @@ rule steinbock_separate_masks_for_intensities:
         "mkdir -p {output.tmp_dir} "
         " && ln -rs {input.mask} {output.tmp_masks} "
 
-#rule create_image_csv_2:
-#    input: 
-#        samples = expand("results/masks/{s}.tiff",s=all_samples),
-#        filename = "config/samples.csv"
-#    output:
-#        images_csv="results/images.csv"
-#    shell:
-#        "workflow/scripts/create_images_csv.sh {output.images.csv} {input.samples}"
-#
-
 rule steinbock_create_intensities:
     input:
-        #rules.steinbock_separate_masks_for_intensities.output,
         img = "results/temp_img/{all_samples}",
         img_files = "results/temp_img/{all_samples}/{all_samples}.tiff",
         panel = "results/temp_summary_panels/{all_samples}_summary.csv",
@@ -266,7 +237,6 @@ rule steinbock_create_intensities:
 
 rule steinbock_create_regionprops:
     input:
-        #rules.steinbock_separate_masks_for_intensities.output,
         img = "results/temp_img/{all_samples}",
         img_files = "results/temp_img/{all_samples}/{all_samples}.tiff",
         mask = "results/temp_masks/{all_samples}",
@@ -292,7 +262,6 @@ rule steinbock_create_neighbors:
     params:
         output_dir = "results/temp_neighbors"
     input:
-        #rules.steinbock_separate_masks_for_intensities.output,
         img = "results/temp_img/{all_samples}",
         img_files = "results/temp_img/{all_samples}/{all_samples}.tiff",
         mask = "results/temp_masks/{all_samples}",
@@ -327,10 +296,14 @@ rule create_spe:
     script:
         "scripts/prepare_spe.R"
 
+def get_spe_from_images_csv(wildcards):
+    samples = get_samples_from_images_csv(wildcards)
+    return [ "results/spe/raw/SPE_raw_"+sam+".rds" for sam in samples ]
+
 rule combine_spe:
     input:
-        samcsv="config/samples.csv",
-        spes=expand("results/spe/raw/SPE_raw_{all_samples}.rds",all_samples=all_samples)
+        #samcsv="config/samples.csv",
+        spes = get_spe_from_images_csv
     output:
         spe="results/spe/raw/SPE_combined.rds"
     container:
@@ -338,12 +311,16 @@ rule combine_spe:
     script:
         "scripts/combine_spe.R"
 
+def get_mask_from_images_csv(wildcards):
+    samples = get_samples_from_images_csv(wildcards)
+    return [ "results/masks/"+sam+".tiff" for sam in samples ]
+
 rule filter_spe:
     params:
         min_cell_area=min_cell_area
     input:
         spe="results/spe/raw/SPE_combined.rds",
-        masks=expand("results/masks/{all_samples}.tiff",all_samples=all_samples)
+        masks=get_mask_from_images_csv
     output:
         spe="results/spe/raw/SPE_combined_markedfilt.rds"
     container:
@@ -356,16 +333,14 @@ rule visualize_filter_spe:
         min_cell_area=min_cell_area
     input:
         spe="results/spe/raw/SPE_combined_markedfilt.rds",
-        masks=expand("results/masks/{all_samples}.tiff",all_samples=all_samples),
-        images=expand("results/img/{all_samples}.tiff",all_samples=all_samples)
+        masks=get_mask_from_images_csv,
+        images=get_img_from_images_csv
     output:
         html="results/html/visualize_filter_spe.html"
     container:
         "docker://retogerber/imcr:latest"
     script:
         "scripts/visualize_filter_spe.Rmd"
-
-
 
 rule batch_correction_spe:
     params:
@@ -380,8 +355,6 @@ rule batch_correction_spe:
         "docker://retogerber/imcr:latest"
     script:
         "scripts/batch_correction_spe.R"
-
-
 
 rule visualize_batch_spe:
     params:
