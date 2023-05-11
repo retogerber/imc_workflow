@@ -10,6 +10,9 @@ workdir: "."
 # config file name
 configfile: "config/config.yaml"
 
+# report file
+report: "report/report.rst"
+
 # mcd files, all files in directory 'results/raw' are used
 mcd_files=glob.glob("results/raw/*.mcd")
 mcd_files=[ os.path.basename(s).replace(".mcd","") for s in mcd_files  ]
@@ -46,16 +49,23 @@ min_cell_area=config["min_cell_area"]
 sample_metadata=config["sample_metadata"]
 cols_for_batch=config["cols_for_batch"]
 
+with open(sample_metadata) as f:
+    has_metadata = len(pd.read_csv(f).index) > 1
 ## cell mixing score number of neighbors
 k_cms=config["k_cms"]
 
 ## annotation
 clustering_annotation_file=config["clustering_annotation_file"]
 clustering_used=config["clustering_used"]
-if clustering_used == "":
-    get_annot_spe=2
+if clustering_used == "" and not has_metadata:
+    get_annot_spe="raw/SPE_combined_markedfilt.rds"
+    get_vis_html=["filter"]
+elif clustering_used == "" and has_metadata:
+    get_annot_spe="filt/SPE_combined_02.rds"
+    get_vis_html=["filter","batch","batch_evaluation"]
 else:
-    get_annot_spe=3
+    get_annot_spe="filt/SPE_combined_03.rds"
+    get_vis_html=["filter","batch","batch_evaluation","cluster"]
 
 
 ### Start of workflow.
@@ -65,11 +75,10 @@ else:
 
 rule all:
     input:
-        expand("results/spe/filt/SPE_combined_0{v}.rds",v=get_annot_spe),
-        "results/html/visualize_filter_spe.html",
-        "results/html/visualize_batch_spe.html",
-        #"results/html/visualize_batch_evaluation_spe.html",
-        "results/html/visualize_cluster_spe.html"
+        expand("results/spe/{v}",v=get_annot_spe),
+        expand("results/html/visualize_{v}_spe.html",v=get_vis_html),
+        "config/samples.csv",
+        "results/html/.empty"
 
 
 
@@ -80,9 +89,9 @@ rule extract_images_from_mcd:
         mcd_files="results/raw/{mcd}.mcd"
     output:
         imginfo_out="results/images_csv/{mcd}_images.csv",
-        tmpdir=temp(directory("results/raw_tmp/{mcd}")),
+        tmpdir=directory("results/raw_tmp/{mcd}"),
         sumpan="results/summary_panels/{mcd}_summary.csv",
-        img_dir=temp(directory("results/img/{mcd}"))
+        img_dir=directory("results/img/{mcd}")
     container:
         steinbock_container
     shell:
@@ -99,6 +108,14 @@ checkpoint create_image_csv:
         imcsv="results/images.csv"
     shell:
         "first_file=$( echo {input.sumpan}  ) && first_file=( ${{first_file[0]}} ) && head -n 1 ${{first_file[0]}} > {output.imcsv} && tail -n+2 -q {input.sumpan} >> {output.imcsv}"
+
+rule create_samples_csv:
+    input:
+        imcsv="results/images.csv"
+    output:
+        samcsv="config/samples.csv"
+    shell:
+        "cat {input.imcsv} | cut -d, -f1 | sed 1d | sed 's/.tiff//g' > {output.samcsv}"
 
 def get_samples_from_images_csv(wildcards):
     """Return samples from file 'results/images.csv'"""
@@ -438,3 +455,9 @@ rule annotate_spe:
 
 
 
+rule gather_reports:
+    output:
+        report = report(directory("results/html"), patterns=["{name}.html"], caption="report/report.rst"),
+        empty_file = temp("results/html/.empty")
+    shell:
+        "touch {output.empty_file}"

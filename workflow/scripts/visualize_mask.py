@@ -6,13 +6,9 @@ import yaml
 import numpy as np
 import click
 
-if False:
-    import os
-    os.chdir("Nextcloud/Projects/imc_workflow")
-
-
 @click.command(name="visualize_mask", help="open napari to visualize mask")
-@click.option("-s","--sample")
+@click.option("-s","--sample", required=True, help="Name of sample to display")
+@click.option("-f","--filtered", is_flag=True, show_default=True, default=False, help="Use filtered image")
 @click.option("-i","--img", default=None)
 @click.option("-m","--mask", default=None)
 @click.option("-p","--panel", default=None)
@@ -20,10 +16,12 @@ if False:
 
 
 
-def visualize(sample, img, mask, panel, config):
+def visualize(sample, filtered, img, mask, panel, config):
     """Reads in sample and opens napari for visualization """ 
     
-    if img is None:
+    if img is None and filtered:
+        img = "results/img_filt/"+sample+".tiff"
+    elif img is None and not filtered:
         img = "results/img/"+sample+".tiff"
     if mask is None:
         mask = "results/masks/"+sample+".tiff"
@@ -72,7 +70,7 @@ def visualize(sample, img, mask, panel, config):
     # convert cell mask raster data to polygons for transformation
     cell_shapes = []
     cell_indices = []
-    for cell_idx in np.unique(mk)[1:100]:
+    for cell_idx in np.unique(mk):
         cell_mask_thresh = mk.copy()
         cell_mask_thresh[cell_mask_thresh < cell_idx] = 0
         cell_mask_thresh[cell_mask_thresh > cell_idx] = 0
