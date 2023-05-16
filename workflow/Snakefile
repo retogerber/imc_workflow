@@ -23,58 +23,20 @@ mcd_files=[ os.path.basename(s).replace(".mcd","") for s in mcd_files  ]
 ### used parameters
 ## please adjust the configfile as needed
 
-## Filtering:
-# threshold for filtering
-filter_thres=config["filtering"]["filter_thres"]
-# type of filtering
-filter_subtraction_type=config["filtering"]["filter_subtraction_type"]
-## Segmentation
-# list of nuclear channels used in segmentation
-nuc_channels=config["segmentation"]["nuc_channels"]
-# list of membrane channels used in segmentation
-mem_channels=config["segmentation"]["mem_channels"]
-# size of each pixel in micrometer
-image_pixelsize=config["segmentation"]["image_pixelsize"]
-# postprocessing parameters used in mesmer
-mesmer_postprocessing_paramsfile=config["segmentation"]["mesmer_postprocessing_paramsfile"]
-
-## steinbock, which version is used
-steinbock_container=config["steinbock_container"]
-## additional metadata of channels
-channel_metadata_file=config["channel_metadata_file"]
-
-
-## Cell level filtering
-min_cell_area=config["min_cell_area"]
-
-## sample level metadata
-sample_metadata=config["sample_metadata"]
-cols_for_batch=config["cols_for_batch"]
-
-with open(sample_metadata) as f:
+with open(config["sample_metadata"]) as f:
     has_metadata = len(pd.read_csv(f).index) > 1
-## cell mixing score number of neighbors
-k_cms=config["k_cms"]
 
-## annotation
-clustering_annotation_file=config["clustering_annotation_file"]
-clustering_used=config["clustering_used"]
-if clustering_used == "" and not has_metadata:
+if config["clustering_used"] == "" and not has_metadata:
     get_annot_spe="raw/SPE_combined_markedfilt.rds"
     get_vis_html=["filter"]
-elif clustering_used == "" and has_metadata:
+elif config["clustering_used"] == "" and has_metadata:
     get_annot_spe="filt/SPE_combined_02.rds"
     get_vis_html=["filter","batch","batch_evaluation","cluster"]
 else:
     get_annot_spe="filt/SPE_combined_03.rds"
     get_vis_html=["filter","batch","batch_evaluation","cluster"]
 
-print(get_vis_html)
-
 ### Start of workflow.
-
-#print(".mcd files:")
-#print(mcd_files)
 
 rule all:
     input:
@@ -83,11 +45,8 @@ rule all:
         "config/samples.csv",
         "results/html/.empty"
 
-
-
 rule extract_images_from_mcd:
     params:
-        #imgout="results/img"
         imgout = lambda w, output: os.path.join(*os.path.normpath(output[3]).split(os.path.sep)[:2])
     input:
         mcd_files="results/raw/{mcd}.mcd"
@@ -100,7 +59,7 @@ rule extract_images_from_mcd:
         stdout="logs/extract_images_from_mcd/{mcd}.stdout",
         stderr="logs/extract_images_from_mcd/{mcd}.stderr"
     container:
-        steinbock_container
+        config["steinbock_container"]
     shell:
         "mkdir -p {output.tmpdir} > {log.stdout} 2> {log.stderr} "
         " && cp {input.mcd_files} {output.tmpdir} >> {log.stdout} 2>> {log.stderr}"
@@ -117,7 +76,7 @@ checkpoint create_image_csv:
         stdout="logs/create_image_csv/log.stdout",
         stderr="logs/create_image_csv/log.stderr"
     container:
-        steinbock_container
+        config["steinbock_container"]
     shell:
         "first_file=$( echo {input.sumpan}  ) && first_file=( ${{first_file[0]}} ) && head -n 1 ${{first_file[0]}} > {output.imcsv} 2> {log.stderr} && tail -n+2 -q {input.sumpan} >> {output.imcsv} 2>> {log.stderr}"
 
@@ -130,14 +89,14 @@ rule create_samples_csv:
         stdout="logs/create_samples_csv/log.stdout",
         stderr="logs/create_samples_csv/log.stderr"
     container:
-        steinbock_container
+        config["steinbock_container"]
     shell:
         "cat {input.imcsv} | cut -d, -f1 | sed 1d | sed 's/.tiff//g' > {output.samcsv}  2> {log.stderr}"
 
 rule create_individual_summary_panels:
     params:
-        nuc_channels=nuc_channels,
-        mem_channels=mem_channels
+        nuc_channels=config["segmentation"]["nuc_channels"],
+        mem_channels=config["segmentation"]["mem_channels"]
     input:
         summary_panel_in=mcd_summary_panel_from_sample_name
     output:
@@ -146,15 +105,15 @@ rule create_individual_summary_panels:
         stdout="logs/create_individual_summary_panels/{sample}.stdout",
         stderr="logs/create_individual_summary_panels/{sample}.stderr"
     container:
-        steinbock_container
+        config["steinbock_container"]
     shell:
         "workflow/scripts/create_individual_summary_panel.sh -s '{input.summary_panel_in}' -p '{output.summary_panels}' -n '{params.nuc_channels}' -m '{params.mem_channels}' > {log.stdout} 2> {log.stderr}"
 
 
 rule background_subtraction:
     params:
-        thres=filter_thres,
-        subtraction_type=filter_subtraction_type
+        thres=config["filtering"]["filter_thres"],
+        subtraction_type=config["filtering"]["filter_subtraction_type"]
     input:
         img = get_img_from_images_csv,
         mcd_files=mcd_name_from_sample_name
@@ -164,9 +123,9 @@ rule background_subtraction:
         stdout="logs/background_subtraction/{sample}.stdout",
         stderr="logs/background_subtraction/{sample}.stderr"
     conda:
-        "workflow/envs/filter_hot_pixels.yaml"
+        "envs/filter_hot_pixels.yaml"
     script:
-        "workflow/scripts/background_subtraction.py > {log.stdout} 2> {log.stderr}"
+        "scripts/background_subtraction.py"
 
 
 rule steinbock_separate_images_for_mask:
@@ -181,7 +140,7 @@ rule steinbock_separate_images_for_mask:
         stdout="logs/steinbock_separate_image_for_mask/{sample}.stdout",
         stderr="logs/steinbock_separate_image_for_mask/{sample}.stderr"
     container:
-        steinbock_container
+        config["steinbock_container"]
     shell:
         "mkdir -p {output.output_dir} > {log.stdout} 2> {log.stderr} "
         " && ln -rs {input.files} {output.output_files} >> {log.stdout} 2>> {log.stderr} "
@@ -196,14 +155,14 @@ rule combine_panel_csv:
         stdout="logs/combine_panel_csv/{sample}.stdout",
         stderr="logs/combine_panel_csv/{sample}.stderr"
     container:
-        steinbock_container
+        config["steinbock_container"]
     shell:
         "cp {input} {output} > {log.stdout} 2> {log.stderr}"
 
 rule steinbock_create_mask:
     params:
-        pixelsize = image_pixelsize,
-        postprocessing_file=mesmer_postprocessing_paramsfile
+        pixelsize = config["segmentation"]["image_pixelsize"],
+        postprocessing_file=config["segmentation"]["mesmer_postprocessing_paramsfile"]
     input:
         img = "results/temp_img/{all_samples}",
         img_files = "results/temp_img/{all_samples}/{all_samples}.tiff",
@@ -216,7 +175,7 @@ rule steinbock_create_mask:
         stdout="logs/steinbock_create_mask/{all_samples}.stdout",
         stderr="logs/steinbock_create_mask/{all_samples}.stderr"
     container:
-        steinbock_container
+        config["steinbock_container"]
     threads: 8
     shell: 
         "mkdir -p {output.tmp_dir} > {log.stdout} 2> {log.stderr} "
@@ -233,7 +192,7 @@ rule steinbock_separate_masks_for_intensities:
         stdout="logs/steinbock_separate_masks_for_intensities/{all_samples}.stdout",
         stderr="logs/steinbock_separate_masks_for_intensities/{all_samples}.stderr"
     container:
-        steinbock_container
+        config["steinbock_container"]
     shell:
         "mkdir -p {output.tmp_dir} > {log.stdout} 2> {log.stderr} "
         " && ln -rs {input.mask} {output.tmp_masks} >> {log.stdout} 2>> {log.stderr} "
@@ -253,7 +212,7 @@ rule steinbock_create_intensities:
         stdout="logs/steinbock_create_intensities/{all_samples}.stdout",
         stderr="logs/steinbock_create_intensities/{all_samples}.stderr"
     container:
-        steinbock_container
+        config["steinbock_container"]
     shell: 
         "mkdir -p {output.tmp_dir} > {log.stdout} 2> {log.stderr} "
         " && steinbock measure intensities --aggr mean --img {input.img} --panel {input.panel} --masks {input.mask} -o {output.tmp_dir} >> {log.stdout} 2>> {log.stderr} "
@@ -274,7 +233,7 @@ rule steinbock_create_regionprops:
         stdout="logs/steinbock_create_regionprops/{all_samples}.stdout",
         stderr="logs/steinbock_create_regionprops/{all_samples}.stderr"
     container:
-        steinbock_container
+        config["steinbock_container"]
     shell: 
         "mkdir -p {output.tmp_dir}  > {log.stdout} 2> {log.stderr} "
         " && steinbock measure regionprops "
@@ -303,7 +262,7 @@ rule steinbock_create_neighbors:
         stdout="logs/steinbock_create_neighbors/{all_samples}.stdout",
         stderr="logs/steinbock_create_neighbors/{all_samples}.stderr"
     container:
-        steinbock_container
+        config["steinbock_container"]
     shell: 
         "steinbock measure neighbors "
         " --masks {input.mask} "
@@ -321,7 +280,7 @@ rule create_spe:
         regionpropts = "results/regionprops/{all_samples}.csv",
         neighbors = "results/neighbors/{all_samples}.csv",
         panel_file = "results/temp_summary_panels/{all_samples}_summary.csv",
-        channel_metadata_file = channel_metadata_file
+        channel_metadata_file = config["channel_metadata_file"]
     output:
         "results/spe/raw/SPE_raw_{all_samples}.rds"
     log:
@@ -348,7 +307,7 @@ rule combine_spe:
 
 rule filter_spe:
     params:
-        min_cell_area=min_cell_area
+        min_cell_area=config["min_cell_area"]
     input:
         spe="results/spe/raw/SPE_combined.rds",
         masks=get_mask_from_images_csv
@@ -364,11 +323,11 @@ rule filter_spe:
 
 rule visualize_filter_spe:
     params:
-        min_cell_area=min_cell_area
+        min_cell_area=config["min_cell_area"]
     input:
         spe="results/spe/raw/SPE_combined_markedfilt.rds",
         masks=get_mask_from_images_csv,
-        images=get_img_from_images_csv
+        images=get_images_from_images_csv
     output:
         html="results/html/visualize_filter_spe.html"
     log:
@@ -381,11 +340,11 @@ rule visualize_filter_spe:
 
 rule batch_correction_spe:
     params:
-        cols_for_batch=cols_for_batch
+        cols_for_batch=config["cols_for_batch"]
     threads: 32
     input:
         spe="results/spe/raw/SPE_combined_markedfilt.rds",
-        sample_metadata=sample_metadata
+        sample_metadata=config["sample_metadata"]
     output:
         spe="results/spe/filt/SPE_combined_01.rds"
     log:
@@ -398,7 +357,7 @@ rule batch_correction_spe:
 
 rule visualize_batch_spe:
     params:
-        cols_for_batch=cols_for_batch
+        cols_for_batch=config["cols_for_batch"]
     threads: 16
     input:
         spe="results/spe/filt/SPE_combined_01.rds"
@@ -415,8 +374,8 @@ rule visualize_batch_spe:
 rule batch_evaluation_spe:
     threads: 32
     params:
-        k=k_cms,
-        cols_for_batch=cols_for_batch
+        k=config["k_cms"],
+        cols_for_batch=config["cols_for_batch"]
     input:
         spe="results/spe/filt/SPE_combined_01.rds"
     output:
@@ -432,7 +391,7 @@ rule batch_evaluation_spe:
 rule visualize_batch_evaluation_spe:
     threads: 1
     params:
-        cols_for_batch=cols_for_batch
+        cols_for_batch=config["cols_for_batch"]
     input:
         spe="results/spe/filt/SPE_combined_01_cms.rds"
     output:
@@ -480,10 +439,10 @@ rule visualize_cluster_spe:
 rule annotate_spe:
     threads: 1
     params:
-        clustering_used=clustering_used
+        clustering_used=config["clustering_used"]
     input:
         spe="results/spe/filt/SPE_combined_02.rds",
-        clustering_annotation_file=clustering_annotation_file
+        clustering_annotation_file=config["clustering_annotation_file"]
     output:
         spe="results/spe/filt/SPE_combined_03.rds"
     log:
@@ -504,6 +463,6 @@ rule gather_reports:
         stdout="logs/gather_reports/log.stdout",
         stderr="logs/gather_reports/log.stderr"
     container:
-        steinbock_container
+        config["steinbock_container"]
     shell:
         "touch {output.empty_file} > {log.stdout} 2> {log.stderr} "

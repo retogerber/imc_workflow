@@ -1,3 +1,4 @@
+import numpy as np
 
 def get_samples_from_images_csv(wildcards):
     """Return samples from file 'results/images.csv'"""
@@ -9,30 +10,31 @@ def get_samples_from_images_csv(wildcards):
 
 def get_img_from_images_csv(wildcards):
     samples = get_samples_from_images_csv(wildcards)
-    return [ f"results/img/{sam}.tiff" for sam in samples ]
+    samples = np.array(samples)[np.array(samples)==wildcards.sample]
+    samples_ls = [ f"results/img/{sam}.tiff" for sam in samples ]
+    return samples_ls
 
-#rule create_samples_csv:
-#    input:
-#        imcsv="results/images.csv"
-#    output:
-#        samcsv="config/samples.csv"
-#    shell:
-#        "cat {input.imcsv} | cut -d, -f1 | sed 1d | sed 's/.tiff//g' > {output.samcsv}"
+def get_images_from_images_csv(wildcards):
+    samples = get_samples_from_images_csv(wildcards)
+    samples_ls = [ f"results/img/{sam}.tiff" for sam in samples ]
+    return samples_ls
 
 def mcd_name_from_sample_name(wildcards):
     str_output = re.sub("_[0-9]{3}$", "", wildcards.sample)
-    return f"results/raw/{str_output}.mcd"
+    mcd_name = f"results/raw/{str_output}.mcd"
+    return mcd_name
 
 def mcd_summary_panel_from_sample_name(wildcards):
     str_output = re.sub("_[0-9]{3}$", "", wildcards.sample)
-    return f"results/summary_panels/{str_output}_summary.csv"
+    mcd_summary_panel = f"results/summary_panels/{str_output}_summary.csv"
+    return mcd_summary_panel
 
 
 def get_img_samplenames(wildcards):
     '''return full path tiff from wildcard'''
     out = []
     for s in wildcards:
-        if filter_thres > 0:
+        if config["filtering"]["filter_thres"] > 0:
             out.append(f"results/img_filt/{s}.tiff")
         else:
             out.append(f"results/img/{s}.tiff")
@@ -40,11 +42,13 @@ def get_img_samplenames(wildcards):
 
 def get_spe_from_images_csv(wildcards):
     samples = get_samples_from_images_csv(wildcards)
-    return [ f"results/spe/raw/SPE_raw_{sam}.rds" for sam in samples ]
+    samples_ls = [ f"results/spe/raw/SPE_raw_{sam}.rds" for sam in samples ]
+    return samples_ls
 
 
 def get_mask_from_images_csv(wildcards):
     samples = get_samples_from_images_csv(wildcards)
-    return [ f"results/masks/{sam}.tiff" for sam in samples ]
+    samples_ls = [ f"results/masks/{sam}.tiff" for sam in samples ]
+    return samples_ls
 
 
