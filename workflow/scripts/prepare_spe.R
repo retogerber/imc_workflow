@@ -1,5 +1,11 @@
 # set options
 options(warn=2)
+# logging
+stdlog <- file(snakemake@log[["stdout"]], open="wt")
+sink(stdlog, type = "output")
+stderr <- file(snakemake@log[["stderr"]], open="wt")
+sink(stderr, type = "message")
+
 suppressPackageStartupMessages({
   library(magrittr)
   library(SpatialExperiment)

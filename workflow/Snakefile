@@ -64,11 +64,12 @@ if clustering_used == "" and not has_metadata:
     get_vis_html=["filter"]
 elif clustering_used == "" and has_metadata:
     get_annot_spe="filt/SPE_combined_02.rds"
-    get_vis_html=["filter","batch","batch_evaluation"]
+    get_vis_html=["filter","batch","batch_evaluation","cluster"]
 else:
     get_annot_spe="filt/SPE_combined_03.rds"
     get_vis_html=["filter","batch","batch_evaluation","cluster"]
 
+print(get_vis_html)
 
 ### Start of workflow.
 
@@ -87,7 +88,7 @@ rule all:
 rule extract_images_from_mcd:
     params:
         #imgout="results/img"
-        imgout = lambda w, output: os.path.join(os.path.normpath(output[3]).split(os.path.sep)[:2])
+        imgout = lambda w, output: os.path.join(*os.path.normpath(output[3]).split(os.path.sep)[:2])
     input:
         mcd_files="results/raw/{mcd}.mcd"
     output:
@@ -95,37 +96,43 @@ rule extract_images_from_mcd:
         tmpdir=directory("results/raw_tmp/{mcd}"),
         sumpan="results/summary_panels/{mcd}_summary.csv",
         img_dir=directory("results/img/{mcd}")
-    log: "logs/extract_images_from_mcd.{mcd}.log"
+    log:
+        stdout="logs/extract_images_from_mcd/{mcd}.stdout",
+        stderr="logs/extract_images_from_mcd/{mcd}.stderr"
     container:
         steinbock_container
     shell:
-        "mkdir -p {output.tmpdir} "
-        " && cp {input.mcd_files} {output.tmpdir} "
-        " && steinbock preprocess imc panel -o {output.sumpan} --mcd {output.tmpdir} --txt {output.tmpdir} "
-        " && steinbock preprocess imc images --hpf 50 --mcd {output.tmpdir} --txt {output.tmpdir} --panel {output.sumpan} --imgout {output.img_dir} --infoout {output.imginfo_out} "
-        " && mv {output.img_dir}/*.tiff {params.imgout}"
+        "mkdir -p {output.tmpdir} > {log.stdout} 2> {log.stderr} "
+        " && cp {input.mcd_files} {output.tmpdir} >> {log.stdout} 2>> {log.stderr}"
+        " && steinbock preprocess imc panel -o {output.sumpan} --mcd {output.tmpdir} --txt {output.tmpdir} >> {log.stdout} 2>> {log.stderr} "
+        " && steinbock preprocess imc images --hpf 50 --mcd {output.tmpdir} --txt {output.tmpdir} --panel {output.sumpan} --imgout {output.img_dir} --infoout {output.imginfo_out} >> {log.stdout} 2>> {log.stderr} "
+        " && mv {output.img_dir}/*.tiff {params.imgout} >> {log.stdout} 2>> {log.stderr}"
 
 checkpoint create_image_csv:
     input:
         sumpan=expand("results/images_csv/{mcd}_images.csv", mcd=mcd_files)
     output:
         imcsv="results/images.csv"
-    log: "logs/create_image_csv.log"
+    log:
+        stdout="logs/create_image_csv/log.stdout",
+        stderr="logs/create_image_csv/log.stderr"
     container:
         steinbock_container
     shell:
-        "first_file=$( echo {input.sumpan}  ) && first_file=( ${{first_file[0]}} ) && head -n 1 ${{first_file[0]}} > {output.imcsv} && tail -n+2 -q {input.sumpan} >> {output.imcsv}"
+        "first_file=$( echo {input.sumpan}  ) && first_file=( ${{first_file[0]}} ) && head -n 1 ${{first_file[0]}} > {output.imcsv} 2> {log.stderr} && tail -n+2 -q {input.sumpan} >> {output.imcsv} 2>> {log.stderr}"
 
 rule create_samples_csv:
     input:
         imcsv="results/images.csv"
     output:
         samcsv="config/samples.csv"
-    log: "logs/create_samples_csv.log"
+    log:
+        stdout="logs/create_samples_csv/log.stdout",
+        stderr="logs/create_samples_csv/log.stderr"
     container:
         steinbock_container
     shell:
-        "cat {input.imcsv} | cut -d, -f1 | sed 1d | sed 's/.tiff//g' > {output.samcsv}"
+        "cat {input.imcsv} | cut -d, -f1 | sed 1d | sed 's/.tiff//g' > {output.samcsv}  2> {log.stderr}"
 
 rule create_individual_summary_panels:
     params:
@@ -135,11 +142,13 @@ rule create_individual_summary_panels:
         summary_panel_in=mcd_summary_panel_from_sample_name
     output:
         summary_panels="results/summary_panels/{sample}_summary.csv"
-    log: "logs/create/individual_summary_panels.{sample}.log"
+    log:
+        stdout="logs/create_individual_summary_panels/{sample}.stdout",
+        stderr="logs/create_individual_summary_panels/{sample}.stderr"
     container:
         steinbock_container
     shell:
-        "workflow/scripts/create_individual_summary_panel.sh -s '{input.summary_panel_in}' -p '{output.summary_panels}' -n '{params.nuc_channels}' -m '{params.mem_channels}'"
+        "workflow/scripts/create_individual_summary_panel.sh -s '{input.summary_panel_in}' -p '{output.summary_panels}' -n '{params.nuc_channels}' -m '{params.mem_channels}' > {log.stdout} 2> {log.stderr}"
 
 
 rule background_subtraction:
@@ -151,11 +160,13 @@ rule background_subtraction:
         mcd_files=mcd_name_from_sample_name
     output:
         "results/img_filt/{sample}.tiff"
-    log: "logs/background_subtraction.{sample}.log"
+    log:
+        stdout="logs/background_subtraction/{sample}.stdout",
+        stderr="logs/background_subtraction/{sample}.stderr"
     conda:
         "workflow/envs/filter_hot_pixels.yaml"
     script:
-        "workflow/scripts/background_subtraction.py"
+        "workflow/scripts/background_subtraction.py > {log.stdout} 2> {log.stderr}"
 
 
 rule steinbock_separate_images_for_mask:
@@ -166,12 +177,14 @@ rule steinbock_separate_images_for_mask:
     output:
         output_dir = directory("results/temp_img/{sample}"),
         output_files = "results/temp_img/{sample}/{sample}.tiff",
-    log: "logs/steinbock_separate_image_for_mask.{sample}.log"
+    log:
+        stdout="logs/steinbock_separate_image_for_mask/{sample}.stdout",
+        stderr="logs/steinbock_separate_image_for_mask/{sample}.stderr"
     container:
         steinbock_container
     shell:
-        "mkdir -p {output.output_dir} "
-        " && ln -rs {input.files} {output.output_files} "
+        "mkdir -p {output.output_dir} > {log.stdout} 2> {log.stderr} "
+        " && ln -rs {input.files} {output.output_files} >> {log.stdout} 2>> {log.stderr} "
 
 
 rule combine_panel_csv:
@@ -179,11 +192,13 @@ rule combine_panel_csv:
         "results/summary_panels/{sample}_summary.csv"
     output:
         "results/temp_summary_panels/{sample}_summary.csv"
-    log: "logs/combine_panel_csv.{sample}.log"
+    log:
+        stdout="logs/combine_panel_csv/{sample}.stdout",
+        stderr="logs/combine_panel_csv/{sample}.stderr"
     container:
         steinbock_container
     shell:
-        "cp {input} {output}"
+        "cp {input} {output} > {log.stdout} 2> {log.stderr}"
 
 rule steinbock_create_mask:
     params:
@@ -197,14 +212,16 @@ rule steinbock_create_mask:
         tmp_dir=temp(directory("results/temp_masks_init/{all_samples}")),
         tmp_masks=temp("results/temp_masks_init/{all_samples}/{all_samples}.tiff"),
         masks="results/masks/{all_samples}.tiff"
-    log: "logs/steinbock_create_mask.{all_samples}.log"
+    log:
+        stdout="logs/steinbock_create_mask/{all_samples}.stdout",
+        stderr="logs/steinbock_create_mask/{all_samples}.stderr"
     container:
         steinbock_container
     threads: 8
     shell: 
-        "mkdir -p {output.tmp_dir} "
-        " && OPENBLAS_NUM_THREADS={threads} steinbock segment deepcell --minmax --zscore --pixelsize {params.pixelsize} --postprocess {params.postprocessing_file} --img {input.img} --panel {input.panel} -o {output.tmp_dir}"
-        " && cp {output.tmp_masks} {output.masks}"
+        "mkdir -p {output.tmp_dir} > {log.stdout} 2> {log.stderr} "
+        " && OPENBLAS_NUM_THREADS={threads} steinbock segment deepcell --minmax --zscore --pixelsize {params.pixelsize} --postprocess {params.postprocessing_file} --img {input.img} --panel {input.panel} -o {output.tmp_dir} >> {log.stdout} 2>> {log.stderr} "
+        " && cp {output.tmp_masks} {output.masks} >> {log.stdout} 2>> {log.stderr} "
 
 rule steinbock_separate_masks_for_intensities:
     input:
@@ -212,12 +229,14 @@ rule steinbock_separate_masks_for_intensities:
     output:
         tmp_dir=directory("results/temp_masks/{all_samples}"),
         tmp_masks="results/temp_masks/{all_samples}/{all_samples}.tiff"
-    log: "logs/steinbock_separate_masks_for_intensities.{all_samples}.log"
+    log:
+        stdout="logs/steinbock_separate_masks_for_intensities/{all_samples}.stdout",
+        stderr="logs/steinbock_separate_masks_for_intensities/{all_samples}.stderr"
     container:
         steinbock_container
     shell:
-        "mkdir -p {output.tmp_dir} "
-        " && ln -rs {input.mask} {output.tmp_masks} "
+        "mkdir -p {output.tmp_dir} > {log.stdout} 2> {log.stderr} "
+        " && ln -rs {input.mask} {output.tmp_masks} >> {log.stdout} 2>> {log.stderr} "
 
 rule steinbock_create_intensities:
     input:
@@ -230,13 +249,15 @@ rule steinbock_create_intensities:
         output_file = "results/intensities/{all_samples}.csv",
         tmp_dir= temp(directory("results/temp_intensities/{all_samples}")),
         tmp_file=temp("results/temp_intensities/{all_samples}/{all_samples}.csv")
-    log: "logs/steinbock_create_intensities.{all_samples}.og"
+    log:
+        stdout="logs/steinbock_create_intensities/{all_samples}.stdout",
+        stderr="logs/steinbock_create_intensities/{all_samples}.stderr"
     container:
         steinbock_container
     shell: 
-        "mkdir -p {output.tmp_dir} "
-        " && steinbock measure intensities --aggr mean --img {input.img} --panel {input.panel} --masks {input.mask} -o {output.tmp_dir} "
-        " && cp {output.tmp_dir}/*.csv {output.output_file}"
+        "mkdir -p {output.tmp_dir} > {log.stdout} 2> {log.stderr} "
+        " && steinbock measure intensities --aggr mean --img {input.img} --panel {input.panel} --masks {input.mask} -o {output.tmp_dir} >> {log.stdout} 2>> {log.stderr} "
+        " && cp {output.tmp_dir}/*.csv {output.output_file} >> {log.stdout} 2>> {log.stderr}"
 
 
 rule steinbock_create_regionprops:
@@ -249,24 +270,26 @@ rule steinbock_create_regionprops:
         output_file="results/regionprops/{all_samples}.csv",
         tmp_dir= temp(directory("results/temp_regionprops/{all_samples}")),
         tmp_file=temp("results/temp_regionprops/{all_samples}/{all_samples}.csv")
-    log: "logs/steinbock_create_regionprops.{all_samples}.log"
+    log:
+        stdout="logs/steinbock_create_regionprops/{all_samples}.stdout",
+        stderr="logs/steinbock_create_regionprops/{all_samples}.stderr"
     container:
         steinbock_container
     shell: 
-        "mkdir -p {output.tmp_dir} "
+        "mkdir -p {output.tmp_dir}  > {log.stdout} 2> {log.stderr} "
         " && steinbock measure regionprops "
         " --img {input.img} "
         " --masks {input.mask} "
         " -o {output.tmp_dir} "
         " area centroid major_axis_length minor_axis_length "
-        " eccentricity euler_number orientation perimeter solidity "
-        " && cp {output.tmp_file} {output.output_file}"
+        " eccentricity euler_number orientation perimeter solidity  >> {log.stdout} 2>> {log.stderr} "
+        " && cp {output.tmp_file} {output.output_file}  >> {log.stdout} 2>> {log.stderr} "
 
 
 rule steinbock_create_neighbors:
     params:
         #output_dir = "results/temp_neighbors"
-        output_dir = lambda w, output: os.path.join(os.path.normpath(output[2]).split(os.path.sep)[:2])
+        output_dir = lambda w, output: os.path.join(*os.path.normpath(output[2]).split(os.path.sep)[:2])
     input:
         img = "results/temp_img/{all_samples}",
         img_files = "results/temp_img/{all_samples}/{all_samples}.tiff",
@@ -276,15 +299,17 @@ rule steinbock_create_neighbors:
         output_file="results/neighbors/{all_samples}.csv",
         tmp_dir= temp(directory("results/temp_neighbors/{all_samples}")),
         tmp_file=temp("results/temp_neighbors/{all_samples}/{all_samples}.csv")
-    log: "logs/steinbock_create_neighbors.{all_samples}.log"
+    log:
+        stdout="logs/steinbock_create_neighbors/{all_samples}.stdout",
+        stderr="logs/steinbock_create_neighbors/{all_samples}.stderr"
     container:
         steinbock_container
     shell: 
         "steinbock measure neighbors "
         " --masks {input.mask} "
         " -o {output.tmp_dir} "
-        " --type centroids --dmax 15 "
-        " && cp {output.tmp_file} {output.output_file}"
+        " --type centroids --dmax 15  > {log.stdout} 2> {log.stderr} "
+        " && cp {output.tmp_file} {output.output_file}  >> {log.stdout} 2>> {log.stderr} "
 
 
 rule create_spe:
@@ -299,7 +324,9 @@ rule create_spe:
         channel_metadata_file = channel_metadata_file
     output:
         "results/spe/raw/SPE_raw_{all_samples}.rds"
-    log: "logs/create_spe.{all_samples}.log"
+    log:
+        stdout="logs/create_spe/{all_samples}.stdout",
+        stderr="logs/create_spe/{all_samples}.stderr"
     container:
         "docker://retogerber/imcr:latest"
     script:
@@ -311,7 +338,9 @@ rule combine_spe:
         spes = get_spe_from_images_csv
     output:
         spe="results/spe/raw/SPE_combined.rds"
-    log: "logs/combine_spe.log"
+    log:
+        stdout="logs/combine_spe/log.stdout",
+        stderr="logs/combine_spe/log.stderr"
     container:
         "docker://retogerber/imcr:latest"
     script:
@@ -325,7 +354,9 @@ rule filter_spe:
         masks=get_mask_from_images_csv
     output:
         spe="results/spe/raw/SPE_combined_markedfilt.rds"
-    log: "logs/filter_spe.log"
+    log:
+        stdout="logs/filter_spe/log.stdout",
+        stderr="logs/filter_spe/log.stderr"
     container:
         "docker://retogerber/imcr:latest"
     script:
@@ -340,7 +371,9 @@ rule visualize_filter_spe:
         images=get_img_from_images_csv
     output:
         html="results/html/visualize_filter_spe.html"
-    log: "logs/viszalize_filter_spe.log"
+    log:
+        stdout="logs/visualize_filter_spe/log.stdout",
+        stderr="logs/visualize_filter_spe/log.stderr"
     container:
         "docker://retogerber/imcr:latest"
     script:
@@ -355,7 +388,9 @@ rule batch_correction_spe:
         sample_metadata=sample_metadata
     output:
         spe="results/spe/filt/SPE_combined_01.rds"
-    log: "logs/batch_correction_spe.log"
+    log:
+        stdout="logs/batch_correction_spe/log.stdout",
+        stderr="logs/batch_correction_spe/log.stderr"
     container:
         "docker://retogerber/imcr:latest"
     script:
@@ -369,7 +404,9 @@ rule visualize_batch_spe:
         spe="results/spe/filt/SPE_combined_01.rds"
     output:
         html="results/html/visualize_batch_spe.html"
-    log: "logs/viszalize_batch_spe.log"
+    log:
+        stdout="logs/visualize_batch_spe/log.stdout",
+        stderr="logs/visualize_batch_spe/log.stderr"
     container:
         "docker://retogerber/imcr:latest"
     script:
@@ -384,7 +421,9 @@ rule batch_evaluation_spe:
         spe="results/spe/filt/SPE_combined_01.rds"
     output:
         spe="results/spe/filt/SPE_combined_01_cms.rds"
-    log: "logs/batch_evaluation_spe.log"
+    log:
+        stdout="logs/batch_evaluation_spe/log.stdout",
+        stderr="logs/batch_evaluation_spe/log.stderr"
     container:
         "docker://retogerber/imcr:latest"
     script:
@@ -398,7 +437,9 @@ rule visualize_batch_evaluation_spe:
         spe="results/spe/filt/SPE_combined_01_cms.rds"
     output:
         html="results/html/visualize_batch_evaluation_spe.html"
-    log: "logs/viszalize_batch_evaluation.log"
+    log:
+        stdout="logs/visualize_batch_evaluation_spe/log.stdout",
+        stderr="logs/visualize_batch_evaluation_spe/log.stderr"
     container:
         "docker://retogerber/imcr:latest"
     script:
@@ -412,7 +453,9 @@ rule cluster_spe:
         spe="results/spe/filt/SPE_combined_01.rds"
     output:
         spe="results/spe/filt/SPE_combined_02.rds"
-    log: "logs/cluster_spe.log"
+    log:
+        stdout="logs/cluster_spe/log.stdout",
+        stderr="logs/cluster_spe/log.stderr"
     container:
         "docker://retogerber/imcr:latest"
     script:
@@ -425,7 +468,9 @@ rule visualize_cluster_spe:
         spe="results/spe/filt/SPE_combined_02.rds"
     output:
         html="results/html/visualize_cluster_spe.html"
-    log: "logs/visualize_cluster_spe.log"
+    log:
+        stdout="logs/visualize_cluster_spe/log.stdout",
+        stderr="logs/visualize_cluster_spe/log.stderr"
     container:
         "docker://retogerber/imcr:latest"
     script:
@@ -441,7 +486,9 @@ rule annotate_spe:
         clustering_annotation_file=clustering_annotation_file
     output:
         spe="results/spe/filt/SPE_combined_03.rds"
-    log: "logs/annotate_spe.log"
+    log:
+        stdout="logs/annotate_spe/log.stdout",
+        stderr="logs/annotate_spe/log.stderr"
     container:
         "docker://retogerber/imcr:latest"
     script:
@@ -453,8 +500,10 @@ rule gather_reports:
     output:
         report = report(directory("results/html"), patterns=["{name}.html"], caption="report/report.rst"),
         empty_file = temp("results/html/.empty")
-    log: "logs/gather_reports.log"
+    log:
+        stdout="logs/gather_reports/log.stdout",
+        stderr="logs/gather_reports/log.stderr"
     container:
         steinbock_container
     shell:
-        "touch {output.empty_file}"
+        "touch {output.empty_file} > {log.stdout} 2> {log.stderr} "

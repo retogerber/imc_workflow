@@ -37,6 +37,12 @@ knitr::opts_chunk$set(time_it = TRUE)
 load packages
 
 ```{r setup_env}
+# logging
+stdlog <- file(snakemake@log[["stdout"]], open="wt")
+sink(stdlog, type = "output")
+stderr <- file(snakemake@log[["stderr"]], open="wt")
+sink(stderr, type = "message")
+
 suppressPackageStartupMessages({
   library(SpatialExperiment)
   library(BiocParallel)
@@ -46,11 +52,9 @@ suppressPackageStartupMessages({
 
 
 ```{r}
-sce <- readRDS(here::here("data/ECM/results/spe/filt/SPE_combined_01_cms.rds"))
 sce <- readRDS(here::here(snakemake@input[["spe"]]))
-sce <- sce[,sample(seq_len(dim(sce)[2]),1000)]
+#sce <- sce[,sample(seq_len(dim(sce)[2]),1000)]
 
-cols_for_batch <- c("sample","slide","tissue")
 cols_for_batch <- snakemake@params[["cols_for_batch"]]
 cols_for_batch[cols_for_batch=="sample"] <- "sample_id"
 stopifnot(all(cols_for_batch %in% colnames(colData(sce))))
@@ -67,12 +71,20 @@ orderc <- sample(seq_along(colnames(sce)))
 for (colour_by in cols_for_batch) {
   uncor_colnam <- colnames(colData(sce))[stringr::str_detect(colnames(colData(sce)),paste0(colour_by,"_uncorrected"))]
   harmo_colnam <- colnames(colData(sce))[stringr::str_detect(colnames(colData(sce)),paste0(colour_by,"_harmony"))]
-  
+  message(paste0(uncor_colnam, collapse=" "))
+  message(paste0(harmo_colnam, collapse=" "))
+  message(paste0(colnames(colData(sce)), collapse=" "))
+  message(paste0(reducedDimNames(sce), collapse=" "))
+  message(colour_by)
   cat(paste0("\n\n# Batch: ",colour_by," {.tabset}\n\n"))
-  cat("\n\n## UMAP uncorrected\n\n")
-  plot(scater::plotReducedDim(sce[,orderc],"UMAP",colour_by = uncor_colnam) + ggplot2::scale_color_viridis_d())
-  cat("\n\n## UMAP corrected\n\n")
-  plot(scater::plotReducedDim(sce[,orderc],"UMAP_corrected",colour_by = harmo_colnam) + ggplot2::scale_color_viridis_d())
+  cat("\n\n## UMAP uncorrected - color=cms\n\n")
+  print(scater::plotReducedDim(sce[,orderc],"UMAP",colour_by = uncor_colnam[2]) + ggplot2::scale_color_viridis_c() + ggplot2::labs(colour=uncor_colnam[2]))
+  cat("\n\n## UMAP corrected - color=cms\n\n")
+  print(scater::plotReducedDim(sce[,orderc],"UMAP_harmony",colour_by = harmo_colnam[2]) + ggplot2::scale_color_viridis_c() + ggplot2::labs(colour=harmo_colnam[2]))
+  cat(paste0("\n\n## UMAP uncorrected - color=",colour_by,"\n\n"))
+  print(scater::plotReducedDim(sce[,orderc],"UMAP",colour_by = colour_by) + ggplot2::scale_color_viridis_d() + ggplot2::labs(colour=colour_by))
+  cat(paste0("\n\n## UMAP corrected - color=",colour_by,"\n\n"))
+  print(scater::plotReducedDim(sce[,orderc],"UMAP_harmony",colour_by = colour_by) + ggplot2::scale_color_viridis_d() + ggplot2::labs(colour=colour_by))
 }
 ```
 
@@ -81,6 +93,6 @@ for (colour_by in cols_for_batch) {
 cat(paste0("\n\n# Batch Histogram: {.tabset}\n\n"))
 for (colour_by in cols_for_batch) {
   cat(paste0("\n\n## ",colour_by,"\n\n"))
-  CellMixS::visHist(sce, metric=paste0("cms.",colour_by))
+  print(CellMixS::visHist(sce, metric=paste0("cms.",colour_by)))
 }
 ```

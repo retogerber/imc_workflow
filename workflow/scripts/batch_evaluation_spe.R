@@ -1,6 +1,11 @@
 ## Setup
-# load packages
+# logging
+stdlog <- file(snakemake@log[["stdout"]], open="wt")
+sink(stdlog, type = "output")
+stderr <- file(snakemake@log[["stderr"]], open="wt")
+sink(stderr, type = "message")
 
+# load packages
 suppressPackageStartupMessages({
   library(SpatialExperiment)
   #library(BiocParallel)

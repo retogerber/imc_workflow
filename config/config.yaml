@@ -12,7 +12,7 @@ segmentation:
     # list of nuclear channels used in segmentation, must exactly match names in summary_panels
     nuc_channels: ["DNA1","DNA2"]
     # list of membrane channels used in segmentation, must exactly match names in summary_panels
-    mem_channels: ["HLA1"]
+    mem_channels: ["Seg1","Seg2","Seg3"]
     # size of each pixel in micrometer
     image_pixelsize: 1.0
     # postprocessing parameters used in mesmer
@@ -34,7 +34,7 @@ min_cell_area: 10
 # one column has to have name 'sample'
 sample_metadata: "config/sample_metadata.csv"
 # colnames in 'sample_metadata' that are used for batch correction
-cols_for_batch: ["sample","slide","tissue"]
+cols_for_batch: ["sample","slide"]
 
 ## cell mixing score number of neighbors
 k_cms: 500
@@ -46,5 +46,5 @@ clustering_used: ""
 # name of the csv file containing annotation labels, two columns are expected:
 #   "cluster": the cluster number (corresponding to the clusters in "clustering_used" parameter)
 #   "celltype": name of the cluster
-clustering_annotation_file: "config/clustering_annotation_file.csv"
+clustering_annotation_file: "config/clustering_annotation.csv"
 

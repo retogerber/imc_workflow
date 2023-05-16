@@ -37,6 +37,12 @@ knitr::opts_chunk$set(time_it = TRUE)
 load packages
 
 ```{r setup_env}
+# logging
+stdlog <- file(snakemake@log[["stdout"]], open="wt")
+sink(stdlog, type = "output")
+stderr <- file(snakemake@log[["stderr"]], open="wt")
+sink(stderr, type = "message")
+
 suppressPackageStartupMessages({
   library(magrittr)
   library(scater)
