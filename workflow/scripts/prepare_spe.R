@@ -58,7 +58,7 @@ rowData(spe)$use_for_clustering <- rowData(spe)$type == "type"
 colData(spe)$sqrt_area <- sqrt(colData(spe)$area)
 
 # transformation
-assay(spe, "exprs") <- asinh(counts(spe)+1)
+assay(spe, "exprs") <- asinh(counts(spe))
 
 
 saveRDS(spe, snakemake@output[[1]])

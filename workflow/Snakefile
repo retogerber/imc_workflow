@@ -113,7 +113,8 @@ rule create_individual_summary_panels:
 rule background_subtraction:
     params:
         thres=config["filtering"]["filter_thres"],
-        subtraction_type=config["filtering"]["filter_subtraction_type"]
+        subtraction_type=config["filtering"]["filter_subtraction_type"],
+        kernelsize=config["filtering"]["kernelsize"]
     input:
         img = get_img_from_images_csv,
         mcd_files=mcd_name_from_sample_name

@@ -2,11 +2,15 @@
 # Filtering:
 filtering:
     # threshold for filtering
-    filter_thres: 0
+    filter_thres: 1
+    # side length of square kernel for type "convolve"
+    kernelsize: 21
     # type of filtering, possible types are:
     #   "below_threshold": All pixels below the set threshold are set to 0
     #   "all": the threshold value is subtracted from each pixel, subsequent negative values are set to 0
-    filter_subtraction_type: "below_threshold"
+    #   "convolve": filter pixels based on intensity and distance to neighboring pixels using a convolution
+    #filter_subtraction_type: "below_threshold"
+    filter_subtraction_type: "convolve"
     
 segmentation:
     # list of nuclear channels used in segmentation, must exactly match names in summary_panels

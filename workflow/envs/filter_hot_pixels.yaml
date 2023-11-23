@@ -1,8 +1,14 @@
+name: background_subtraction
 channels:
-  - bioconda
   - conda-forge
+  - bioconda
 dependencies:
-  - scikit-image >= 0.18.0
+  - python=3.10.11 
   - scipy >= 1.7.2
   - numpy >= 1.21.0
+  - opencv >= 4.7.0
+  - pip
+  - pip:
+    - diptest >= 0.5.2
+    - scikit-image == 0.21.0
 

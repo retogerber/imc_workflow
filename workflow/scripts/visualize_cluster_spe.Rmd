@@ -160,7 +160,7 @@ for(c in clu_name){
   set.seed(1234)
   ids <- sample(ids)
   cat(paste0("### ",c,"\n\n"))
-  print(scater::plotExpression(sce[,ids], features=rownames(sce)[(rowData(sce)$type == "type") & rowData(sce)$use_for_clustering], x=c, exprs_values = "exprs", colour_by = c, ncol=3) +
+  print(scater::plotExpression(sce[,ids], features=rownames(sce)[(rowData(sce)$type == "type") & rowData(sce)$use_for_clustering], x=c, exprs_values = "exprs", colour_by = c, ncol=3, scales="free_y") +
   labs(color=c))
   cat("\n\n")
 }
