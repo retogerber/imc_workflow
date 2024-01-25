@@ -31,10 +31,12 @@ if config["clustering_used"] == "" and not has_metadata:
     get_vis_html=["filter"]
 elif config["clustering_used"] == "" and has_metadata:
     get_annot_spe="filt/SPE_combined_02.rds"
-    get_vis_html=["filter","batch","batch_evaluation","cluster"]
+    #get_vis_html=["filter","batch","batch_evaluation","cluster"]
+    get_vis_html=["filter","batch","cluster"]
 else:
     get_annot_spe="filt/SPE_combined_03.rds"
-    get_vis_html=["filter","batch","batch_evaluation","cluster"]
+    #get_vis_html=["filter","batch","batch_evaluation","cluster"]
+    get_vis_html=["filter","batch","cluster"]
 
 ### Start of workflow.
 
@@ -445,7 +447,8 @@ rule annotate_spe:
         spe="results/spe/filt/SPE_combined_02.rds",
         clustering_annotation_file=config["clustering_annotation_file"]
     output:
-        spe="results/spe/filt/SPE_combined_03.rds"
+        spe="results/spe/filt/SPE_combined_03.rds",
+        celltype_annotation_csv="results/spe/filt/celltype_annotation_03.csv",
     log:
         stdout="logs/annotate_spe/log.stdout",
         stderr="logs/annotate_spe/log.stderr"

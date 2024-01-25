@@ -30,5 +30,11 @@ colData(sce) <- colData(sce) %>%
   dplyr::left_join(annot_df,by=c("celltype_cluster"="cluster")) %>% 
   DataFrame(row.names = rownames(colData(sce)))
 
+write.csv(
+  as.data.frame(colData(sce)[,c("sample_id","ObjectNumber","slide","celltype")]),
+  snakemake@output[["celltype_annotation_csv"]],
+  quote=FALSE, row.names=FALSE
+)
+
 # Save
 saveRDS(sce, snakemake@output[["spe"]])
